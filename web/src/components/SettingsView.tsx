@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { SettingsTab, ParsageSettings, UserProfile } from '../types';
 import {
   Monitor, Radio, Gamepad2, Wifi, User, RotateCcw,
-  Check, Sliders, Shield, Zap, Sparkles, LogIn, LogOut
+  Check, Sliders, Shield, Zap, Sparkles, LogIn, LogOut, Key
 } from 'lucide-react';
 
 interface SettingsViewProps {
   settings: ParsageSettings;
   profile: UserProfile;
+  googleClientId?: string;
+  onUpdateGoogleClientId?: (id: string) => void;
   onUpdateClient: <K extends keyof ParsageSettings['client']>(key: K, val: ParsageSettings['client'][K]) => void;
   onUpdateHost: <K extends keyof ParsageSettings['host']>(key: K, val: ParsageSettings['host'][K]) => void;
   onUpdateGamepad: <K extends keyof ParsageSettings['gamepad']>(key: K, val: ParsageSettings['gamepad'][K]) => void;
@@ -21,6 +23,8 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   profile,
+  googleClientId,
+  onUpdateGoogleClientId,
   onUpdateClient,
   onUpdateHost,
   onUpdateGamepad,
@@ -33,11 +37,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('client');
   const [nameInput, setNameInput] = useState(profile.name);
   const [tagInput, setTagInput] = useState(profile.tag);
+  const [clientIdInput, setClientIdInput] = useState(googleClientId || '');
   const [savedNotice, setSavedNotice] = useState(false);
 
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateProfile({ name: nameInput, tag: tagInput });
+    if (onUpdateGoogleClientId && clientIdInput !== googleClientId) {
+      onUpdateGoogleClientId(clientIdInput);
+    }
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2000);
   };
@@ -369,19 +377,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div>
               <h3 style={{ fontSize: '1.15rem', color: 'var(--fg-bright)', fontWeight: 800 }}>Gamer Profile & Sign-In</h3>
               <p style={{ color: 'var(--fg-muted)', fontSize: '0.85rem' }}>
-                Sign in with Google (100% Free OAuth) or customize your local Parsage gamer tag.
+                Sign in with Google OAuth or customize your local Parsage gamer tag.
               </p>
             </div>
 
             {profile.isGoogleAuth ? (
               <button className="btn btn-danger" onClick={onLogout} style={{ padding: '8px 16px', fontSize: '0.82rem' }}>
                 <LogOut size={15} />
-                <span>Log Out</span>
+                <span>Log Out ({profile.name})</span>
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={onOpenGoogleAuth} style={{ padding: '10px 18px' }}>
-                <LogIn size={18} />
-                <span>Sign in with Google (Free)</span>
+              <button className="btn btn-primary" onClick={onOpenGoogleAuth} style={{ padding: '10px 18px', display: 'flex', gap: '8px' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="#EA4335" d="M12 5c1.7 0 3 .6 4 1.5l3-3C17.2 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+                  <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
+                  <path fill="#FBBC05" d="M5.6 14.8c-.3-.8-.4-1.8-.4-2.8s.1-2 .4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/>
+                  <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/>
+                </svg>
+                <span>Sign in with Google</span>
               </button>
             )}
           </div>
@@ -412,8 +425,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
 
+            <div style={{ gridColumn: 'span 2' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
+                Google OAuth Client ID (Optional / Custom Domain):
+              </label>
+              <input
+                type="text"
+                value={clientIdInput}
+                onChange={(e) => setClientIdInput(e.target.value)}
+                placeholder="your-client-id.apps.googleusercontent.com"
+                style={{ width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-muted)', color: 'var(--fg-main)', padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem' }}
+              />
+            </div>
+
             <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
-              {savedNotice && <span style={{ color: 'var(--reggae-green-bright)', fontSize: '0.85rem' }}>✓ Profile saved!</span>}
+              {savedNotice && <span style={{ color: 'var(--reggae-green-bright)', fontSize: '0.85rem' }}>✓ Profile & Client ID saved!</span>}
               <button type="submit" className="btn btn-primary" style={{ padding: '10px 20px' }}>
                 Save Profile
               </button>

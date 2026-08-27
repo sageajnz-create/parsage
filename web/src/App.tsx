@@ -19,10 +19,13 @@ export const App: React.FC = () => {
   const {
     profile,
     updateProfile,
-    loginWithGoogleMockOrGIS,
+    googleClientId,
+    setGoogleClientId,
+    triggerGoogleLogin,
     logout,
     isAuthModalOpen,
-    setIsAuthModalOpen
+    setIsAuthModalOpen,
+    authError
   } = useAuth();
 
   const {
@@ -83,7 +86,7 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-deep)' }}>
-      {/* Parsec Left Sidebar */}
+      {/* Sidebar */}
       <Sidebar
         currentView={currentView}
         onSelectView={setCurrentView}
@@ -160,13 +163,15 @@ export const App: React.FC = () => {
               <SettingsView
                 settings={settings}
                 profile={profile}
+                googleClientId={googleClientId}
+                onUpdateGoogleClientId={setGoogleClientId}
                 onUpdateClient={updateClientSetting}
                 onUpdateHost={updateHostSetting}
                 onUpdateGamepad={updateGamepadSetting}
                 onUpdateNetwork={updateNetworkSetting}
                 onResetDefaults={resetDefaults}
                 onUpdateProfile={updateProfile}
-                onOpenGoogleAuth={loginWithGoogleMockOrGIS}
+                onOpenGoogleAuth={triggerGoogleLogin}
                 onLogout={logout}
               />
             )}
@@ -181,8 +186,9 @@ export const App: React.FC = () => {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         profile={profile}
-        onGoogleLogin={loginWithGoogleMockOrGIS}
+        onGoogleLogin={triggerGoogleLogin}
         onUpdateProfile={updateProfile}
+        authError={authError}
       />
     </div>
   );

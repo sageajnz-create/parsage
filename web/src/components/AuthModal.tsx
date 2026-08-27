@@ -8,13 +8,14 @@ interface AuthModalProps {
   profile: UserProfile;
   onGoogleLogin: () => void;
   onUpdateProfile: (updates: Partial<UserProfile>) => void;
+  authError?: string | null;
 }
 
 const AVATAR_OPTIONS = [
   'https://api.dicebear.com/7.x/bottts/svg?seed=Sage&backgroundColor=1b1a17',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Alex&backgroundColor=1b1a17',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Marcus&backgroundColor=1b1a17',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Rasta&backgroundColor=1b1a17',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=Shadow&backgroundColor=1b1a17',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=Cyber&backgroundColor=1b1a17',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=Nexus&backgroundColor=1b1a17',
   'https://api.dicebear.com/7.x/adventurer/svg?seed=Gamer1&backgroundColor=1b1a17',
   'https://api.dicebear.com/7.x/adventurer/svg?seed=Gamer2&backgroundColor=1b1a17'
 ];
@@ -24,7 +25,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   profile,
   onGoogleLogin,
-  onUpdateProfile
+  onUpdateProfile,
+  authError
 }) => {
   const [name, setName] = useState(profile.name);
   const [tag, setTag] = useState(profile.tag);
@@ -78,18 +80,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             Parsage Gamer Profile
           </h3>
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.85rem', marginTop: '2px' }}>
-            Sign in with Google (Free OAuth) or pick your local gamer identity.
+            Sign in with Google or customize your local gaming identity.
           </p>
         </div>
+
+        {authError && (
+          <div style={{ background: 'rgba(232, 17, 45, 0.2)', border: '1px solid var(--reggae-red)', padding: '10px', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--reggae-red-bright)', textAlign: 'center' }}>
+            {authError}
+          </div>
+        )}
 
         {/* Free Google Sign-in Action */}
         <button
           onClick={onGoogleLogin}
           className="btn btn-primary"
-          style={{ padding: '12px', fontSize: '0.95rem', display: 'flex', gap: '10px' }}
+          style={{ padding: '12px', fontSize: '0.95rem', display: 'flex', gap: '10px', justifyContent: 'center' }}
         >
-          <LogIn size={18} />
-          <span>Continue with Google Account (Free)</span>
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <path fill="#EA4335" d="M12 5c1.7 0 3 .6 4 1.5l3-3C17.2 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+            <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
+            <path fill="#FBBC05" d="M5.6 14.8c-.3-.8-.4-1.8-.4-2.8s.1-2 .4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/>
+            <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/>
+          </svg>
+          <span>Continue with Google Account</span>
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--fg-muted)', fontSize: '0.8rem' }}>
