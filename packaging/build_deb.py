@@ -19,7 +19,7 @@ DESCRIPTION = "Plug-and-play low-latency game & desktop streaming for Linux and 
 SECTION = "games"
 PRIORITY = "optional"
 ARCHITECTURE = "all"
-DEPENDS = "nodejs, npm, python3, pipewire"
+DEPENDS = "nodejs, npm, python3, python3-gi, pipewire, gstreamer1.0-pipewire, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, gstreamer1.0-vaapi, gir1.2-xdp-1"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
@@ -63,8 +63,8 @@ Depends: {DEPENDS}
 Description: {DESCRIPTION}
  Parsage is a native low-latency game and desktop streaming suite
  designed for Linux (Wayland/X11) and cross-platform clients.
- Features native PipeWire/VA-API hardware capture and zero-latency
- virtual Xbox 360 multi-gamepad injection via /dev/uinput.
+ Includes an experimental native PipeWire/VA-API media backend and
+ virtual Xbox-style multi-gamepad injection via /dev/uinput.
 """
 
     postinst_lines = [

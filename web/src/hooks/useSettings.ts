@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS: ParsageSettings = {
     fps: 60,
     maxBitrateMbps: 25,
     adaptiveBitrate: true,
-    requireApproval: false,
+    requireApproval: true,
     allowMouseKeyboard: true,
     audioSink: 'default',
     virtualGamepadType: 'xbox360'

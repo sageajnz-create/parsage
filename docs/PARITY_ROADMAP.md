@@ -1,0 +1,56 @@
+# Parsage → Parsec-Class Roadmap
+
+“Parity” means passing measurable behavior and reliability gates, not displaying a setting in the UI.
+
+## Current baseline
+
+- Linux host and Chromium/Electron client
+- WebRTC screen/audio transport and signaling
+- LAN and STUN connectivity, with configurable TURN fallback
+- Four virtual Xbox-style uinput slots
+- Per-peer approval and input permissions
+
+## P0 — Safe, reliable remote session
+
+- [x] Approval gates media negotiation and remote input
+- [x] Reject cross-room signaling
+- [x] TURN configuration through `TURN_URLS`, `TURN_USERNAME`, and `TURN_CREDENTIAL`
+- [x] Apply the selected video bitrate to WebRTC senders
+- [ ] Reconnect ICE after network changes without recreating the room
+- [x] Expire unattended approval requests and stale rooms
+- [x] Cryptographically strong invitation codes and join-attempt throttling
+- [ ] Authenticate signaling identities and bind invitations to an identity
+
+Acceptance: 30-minute WAN session, forced Wi-Fi roam, restrictive-NAT relay test, and unauthorized-peer test all pass.
+
+## P1 — Gaming-quality media
+
+- [ ] Native PipeWire capture backend integrated into live sessions (standalone portal capture is verified)
+- [ ] Explicit VA-API/NVENC encoding in live sessions (VA-API benchmark is verified at 1080p60)
+- [ ] H.264 baseline plus negotiated HEVC/AV1 capability fallback
+- [ ] Pacing, bitrate adaptation, keyframe recovery, and packet-loss handling
+- [ ] Hardware decode path and frame-present timing
+- [ ] Real telemetry for capture, encode, network, decode, and display latency
+
+Acceptance: 1080p60 under 25 Mbps with no sustained frame drops; latency and quality gates documented per supported GPU.
+
+## P2 — Input parity
+
+- [x] Permission-checked gamepad/mouse bridge
+- [ ] Keyboard capture and Linux key mapping
+- [ ] Relative mouse mode with tested high-polling-rate behavior
+- [ ] Rumble return channel
+- [ ] Hotplug, controller reorder, stuck-key release, and disconnect cleanup
+- [ ] Approved-application filtering
+
+Acceptance: four-controller soak test plus keyboard/mouse safety and disconnect tests.
+
+## P3 — Product reliability
+
+- [ ] Persistent identity, authenticated friends, presence, and device ownership
+- [ ] Secure quick links with revocation and expiry
+- [ ] Auto-update, crash recovery, structured logs, and support bundle
+- [ ] Headless-host flow and service lifecycle
+- [ ] Cross-platform client matrix and accessibility pass
+
+Acceptance: clean install/update/uninstall plus automated smoke tests on every supported distribution and client platform.

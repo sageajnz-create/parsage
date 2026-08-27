@@ -12,6 +12,17 @@ while [ -h "$SOURCE" ]; do
 done
 SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )/.." >/dev/null 2>&1 && pwd )"
 
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/parsage/env"
+if [ -r "$CONFIG_FILE" ]; then
+    while IFS='=' read -r key value; do
+        case "$key" in
+            GOOGLE_CLIENT_ID|REQUIRE_AUTH|COOKIE_SECURE|TURN_URLS|TURN_USERNAME|TURN_CREDENTIAL)
+                export "$key=$value"
+                ;;
+        esac
+    done < "$CONFIG_FILE"
+fi
+
 ELECTRON_BIN=""
 for candidate in electron43 electron /usr/lib/electron*/electron; do
     if command -v "$candidate" &>/dev/null; then
@@ -45,6 +56,55 @@ cmd_status() {
     python3 "$SCRIPT_DIR/host/pipewire_capture.py"
 }
 
+cmd_join() {
+    local room_code="${1:-}"
+    room_code="${room_code^^}"
+    if [[ ! "$room_code" =~ ^PARSAGE-[A-Z0-9]+-([0-9]{3}|[A-Z2-9]{8})$ ]]; then
+        echo "Usage: parsage join PARSAGE-WORD-ROOMCODE" >&2
+        exit 2
+    fi
+    cmd_gui "--join=$room_code"
+}
+
+cmd_uinput_setup() {
+    local rule_source="$SCRIPT_DIR/packaging/99-parsage-uinput.rules"
+    local rule_target="/etc/udev/rules.d/99-parsage-uinput.rules"
+
+    if [ ! -r "$rule_source" ]; then
+        echo "Parsage uinput rule is missing: $rule_source" >&2
+        exit 1
+    fi
+    if ! command -v sudo &>/dev/null; then
+        echo "sudo is required to configure /dev/uinput." >&2
+        exit 1
+    fi
+
+    echo "Installing Parsage uinput permissions..."
+    sudo install -Dm644 "$rule_source" "$rule_target"
+    sudo modprobe uinput
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --name-match=uinput || sudo udevadm trigger
+    echo "uinput configured. Log out and back in if access is not available immediately."
+}
+
+cmd_help() {
+    cat <<'EOF'
+Usage: parsage [command]
+
+Commands:
+  gui                  Launch Parsage (default)
+  host                 Launch Parsage in hosting mode
+  join <ROOM_CODE>     Launch and join a Parsage room
+  headless             Start the input and signaling services
+  status               Show system streaming/input capabilities
+  native-status        Show native PipeWire/WebRTC encoder capabilities
+  native-benchmark     Select a screen and benchmark native H.264 encoding
+  native-webrtc-test   Send native capture through a local WebRTC/SRTP loopback
+  uinput-setup         Install the /dev/uinput permission rule
+  help                 Show this help
+EOF
+}
+
 cmd_headless() {
     echo "Starting Parsage Headless Server..."
     python3 "$SCRIPT_DIR/host/uinput_service.py" &
@@ -58,11 +118,31 @@ case "${1:-gui}" in
     host)
         cmd_gui
         ;;
+    join)
+        cmd_join "${2:-}"
+        ;;
     headless)
         cmd_headless
         ;;
     status)
         cmd_status
+        ;;
+    native-status)
+        python3 "$SCRIPT_DIR/host/native_pipeline.py" probe
+        ;;
+    native-benchmark)
+        shift
+        python3 "$SCRIPT_DIR/host/native_pipeline.py" benchmark "$@"
+        ;;
+    native-webrtc-test)
+        shift
+        python3 "$SCRIPT_DIR/host/native_pipeline.py" webrtc-loopback "$@"
+        ;;
+    uinput-setup)
+        cmd_uinput_setup
+        ;;
+    help|--help|-h)
+        cmd_help
         ;;
     *)
         cmd_gui "$@"

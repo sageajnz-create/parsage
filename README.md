@@ -21,14 +21,14 @@
 
 ## 🌟 Key Features
 
-- **⚡ Sub-4ms Hardware VA-API & NVENC**: Direct PipeWire capture with AMD Radeon and NVIDIA hardware acceleration supporting 60, 120, 144, and 240 FPS gameplay.
+- **⚡ Low-latency WebRTC streaming**: Chromium-managed screen capture and encoding with configurable resolution, frame rate, and bitrate targets.
 - **🎮 4-Player Virtual Xbox 360 Controllers**: Linux kernel `/dev/uinput` ioctl driver exposing 4 genuine Xbox 360 joysticks with dual-motor force feedback rumble.
-- **🌐 Zero Port-Forwarding P2P**: WebRTC STUN hole-punching creates direct UDP channels without router setup.
+- **🌐 P2P with relay support**: WebRTC ICE/STUN hole-punching with configurable TURN fallback for restrictive networks.
 - **📡 Local LAN Direct Connect (<1ms)**: Auto-discovers local network IPs to bypass public internet when on the same Wi-Fi or Ethernet.
 - **🖥️ Standalone Native Desktop App**: Both host and client live in one single application window with no browser overhead.
 - **🕹️ Couch Co-op Arcade**: Browse public party rooms or host multiplayer sessions for games like Smash, Overcooked, and Steam co-op.
 - **👥 Friends & Presence**: Live status indicators, gamer tag invites, and 1-click room joining.
-- **⚙️ Full Settings Matrix**: Video renderer, codec preferences (H.264/HEVC/AV1), stick deadzone calibration, and host permissions.
+- **⚙️ Streaming controls**: Resolution, frame-rate, bitrate, controller calibration, and per-peer host permissions. Codec preferences remain on the parity roadmap.
 
 ---
 
@@ -58,8 +58,11 @@ parsage
 ### CLI Commands:
 - `parsage` — Launch the standalone desktop application
 - `parsage host` — Start hosting your desktop and launch the app
-- `parsage join <CODE>` — Join a live session with room code (e.g. `PARSAGE-OMEGA-777`)
+- `parsage join <CODE>` — Join a live session with its generated room code
 - `parsage status` — Run system diagnostics for VA-API, PipeWire, and uinput
+- `parsage native-status` — Inspect native PipeWire, WebRTC, and encoder support
+- `parsage native-benchmark` — Select a screen and measure native H.264 encoding
+- `parsage native-webrtc-test` — Verify capture, encode, ICE/DTLS/SRTP, and RTP reception locally
 - `parsage uinput-setup` — Configure non-root udev rules for virtual controllers
 
 ---
@@ -80,6 +83,10 @@ parsage/
 ---
 
 ## 📜 License & Credits
+
+Google login requires a real OAuth Web client ID. See [Google authentication](docs/AUTHENTICATION.md) for secure setup.
+
+---
 
 - Created with ❤️ by **Sage & Antigravity**
 - Open source under the [MIT License](LICENSE)

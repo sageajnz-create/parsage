@@ -26,6 +26,15 @@ export function useWebRTC() {
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
   const dataChannels = useRef<Map<string, RTCDataChannel>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const iceServersRef = useRef<RTCIceServer[]>(DEFAULT_STUN_SERVERS);
+  const maxBitrateBpsRef = useRef(25_000_000);
+  const isHostRef = useRef(false);
+  const roomStateRef = useRef<RoomState | null>(null);
+  const currentPeerIdRef = useRef<string | null>(null);
+
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
+  useEffect(() => { currentPeerIdRef.current = currentPeerId; }, [currentPeerId]);
 
   // Fetch LAN IPs for Local Direct Connect
   useEffect(() => {
@@ -33,6 +42,15 @@ export function useWebRTC() {
       .then(res => res.json())
       .then(data => {
         if (data.lanIps) setLanIps(data.lanIps);
+      })
+      .catch(() => {});
+
+    fetch('/api/ice-servers')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+          iceServersRef.current = data.iceServers;
+        }
       })
       .catch(() => {});
   }, []);
@@ -78,9 +96,18 @@ export function useWebRTC() {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: DEFAULT_STUN_SERVERS,
+      iceServers: iceServersRef.current,
       bundlePolicy: 'max-bundle'
     });
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') {
+        pc.restartIce();
+        negotiatePeer(pc, targetPeerId).catch(() => {
+          setErrorMsg('The peer connection failed and could not be recovered.');
+        });
+      }
+    };
 
     pc.onicecandidate = (e) => {
       if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -94,7 +121,8 @@ export function useWebRTC() {
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
+        const sender = pc.addTrack(track, localStreamRef.current!);
+        if (track.kind === 'video') configureVideoSender(sender, maxBitrateBpsRef.current);
       });
     }
 
@@ -120,6 +148,24 @@ export function useWebRTC() {
     return pc;
   }, []);
 
+  const configureVideoSender = async (sender: RTCRtpSender, maxBitrateBps: number) => {
+    const parameters = sender.getParameters();
+    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    parameters.encodings[0].maxBitrate = maxBitrateBps;
+    await sender.setParameters(parameters);
+  };
+
+  const negotiatePeer = async (pc: RTCPeerConnection, targetPeerId: string) => {
+    const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    wsRef.current?.send(JSON.stringify({ type: 'offer', targetPeerId, sdp: offer }));
+  };
+
+  const beginGuestConnection = async (hostId: string) => {
+    const pc = createPeerConnection(hostId, true);
+    await negotiatePeer(pc, hostId);
+  };
+
   const setupDataChannel = (dc: RTCDataChannel, targetPeerId: string) => {
     dc.onopen = () => {
       dataChannels.current.set(targetPeerId, dc);
@@ -135,6 +181,16 @@ export function useWebRTC() {
         } else if (data.type === 'pong') {
           const rtt = Date.now() - data.timestamp;
           setLatencyMs(rtt);
+        } else if (isHostRef.current) {
+          const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
+          const permission = data.type === 'gamepad'
+            ? peer?.permissions.gamepad
+            : data.type === 'mouse'
+              ? peer?.permissions.mouse
+              : data.type === 'keyboard'
+                ? peer?.permissions.keyboard
+                : false;
+          if (peer?.approved && permission) window.parsage?.sendInputPacket(data);
         }
       } catch (err) {}
     };
@@ -153,24 +209,20 @@ export function useWebRTC() {
         setIsHost(false);
         setCurrentPeerId(msg.peerId);
         if (msg.state.hostId) {
-          const pc = createPeerConnection(msg.state.hostId, true);
-          const offer = await pc.createOffer({
-            offerToReceiveVideo: true,
-            offerToReceiveAudio: true
-          });
-          await pc.setLocalDescription(offer);
-          wsRef.current?.send(JSON.stringify({
-            type: 'offer',
-            targetPeerId: msg.state.hostId,
-            sdp: offer
-          }));
+          const self = msg.state.peers.find((peer: PeerInfo) => peer.id === msg.peerId);
+          if (self?.approved) await beginGuestConnection(msg.state.hostId);
         }
+        break;
+
+      case 'peer-approved':
+        setRoomState(msg.state);
+        await beginGuestConnection(msg.hostId);
         break;
 
       case 'room-state':
         setRoomState(msg.state);
-        if (currentPeerId) {
-          const self = msg.state.peers.find((p: PeerInfo) => p.id === currentPeerId);
+        if (currentPeerIdRef.current) {
+          const self = msg.state.peers.find((p: PeerInfo) => p.id === currentPeerIdRef.current);
           if (self) setAssignedSlot(self.slot);
         }
         break;
@@ -230,7 +282,7 @@ export function useWebRTC() {
     };
   }, [connectSignaling]);
 
-  const startScreenCapture = async (fps = 60, resolution = '1080p') => {
+  const startScreenCapture = async (fps = 60, resolution = '1080p', maxBitrateMbps = 25) => {
     try {
       let height = 1080;
       let width = 1920;
@@ -255,12 +307,20 @@ export function useWebRTC() {
 
       setLocalStream(stream);
       localStreamRef.current = stream;
+      maxBitrateBpsRef.current = maxBitrateMbps * 1_000_000;
 
       peerConnections.current.forEach((pc) => {
         stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
+          const sender = pc.addTrack(track, stream);
+          if (track.kind === 'video') configureVideoSender(sender, maxBitrateBpsRef.current);
         });
       });
+
+      if (isHostRef.current) {
+        for (const [peerId, pc] of peerConnections.current) {
+          await negotiatePeer(pc, peerId);
+        }
+      }
 
       return stream;
     } catch (err: any) {

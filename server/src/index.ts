@@ -5,8 +5,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomManager } from './room-manager.js';
-import { DEFAULT_ICE_SERVERS } from './stun-turn.js';
+import { getIceServers } from './stun-turn.js';
 import { ParsageMessage } from './types.js';
+import { AuthService } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +16,17 @@ const PORT = parseInt(process.env.PORT || '7777', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 const roomManager = new RoomManager();
+const auth = new AuthService(process.env.GOOGLE_CLIENT_ID || '');
+const REQUIRE_AUTH = process.env.REQUIRE_AUTH === 'true';
+const SECURE_COOKIE = process.env.COOKIE_SECURE === 'true';
+const APPROVAL_TIMEOUT_MS = parseInt(process.env.APPROVAL_TIMEOUT_MS || '60000', 10);
+const ROOM_MAX_AGE_MS = parseInt(process.env.ROOM_MAX_AGE_MS || String(12 * 60 * 60_000), 10);
+
+const cleanupTimer = setInterval(() => {
+  roomManager.expirePending(Date.now(), APPROVAL_TIMEOUT_MS);
+  roomManager.expireRooms(Date.now(), ROOM_MAX_AGE_MS);
+}, 15_000);
+cleanupTimer.unref();
 
 // Get local IPv4 addresses for LAN direct-connect
 function getLocalIpAddresses(): string[] {
@@ -31,7 +43,30 @@ function getLocalIpAddresses(): string[] {
 }
 
 // Create HTTP Server
-const server = http.createServer((req, res) => {
+function json(res: http.ServerResponse, status: number, body: unknown) {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(body));
+}
+
+async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 16 * 1024) throw new Error('Request body too large.');
+    chunks.push(buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function isSameOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return origin === `http://${req.headers.host}` || origin === `https://${req.headers.host}`;
+}
+
+const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -43,6 +78,92 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
+
+  if (url.pathname === '/api/auth/config') {
+    json(res, 200, { configured: auth.configured, clientId: auth.configured ? auth.clientId : null, requireAuth: REQUIRE_AUTH });
+    return;
+  }
+
+  if (url.pathname === '/api/auth/me') {
+    json(res, 200, { profile: auth.getProfile(req.headers.cookie) });
+    return;
+  }
+
+  if (url.pathname === '/api/auth/google' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin authentication request rejected.' });
+      return;
+    }
+    try {
+      const body = await readJson(req);
+      const credential = typeof body.credential === 'string' ? body.credential : '';
+      const session = await auth.login(credential);
+      res.setHeader('Set-Cookie', auth.sessionCookie(session.token, SECURE_COOKIE));
+      json(res, 200, { profile: session.profile });
+    } catch (error) {
+      console.warn('[Auth] Google login rejected:', error instanceof Error ? error.message : error);
+      json(res, 401, { error: 'Google authentication failed.' });
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin authentication request rejected.' });
+      return;
+    }
+    auth.logout(req.headers.cookie);
+    res.setHeader('Set-Cookie', auth.clearCookie(SECURE_COOKIE));
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/auth/pair/start' && req.method === 'POST') {
+    if (!auth.configured || !isSameOrigin(req)) {
+      json(res, auth.configured ? 403 : 503, { error: 'Desktop authentication pairing is unavailable.' });
+      return;
+    }
+    const pairing = auth.createPairing();
+    json(res, 200, {
+      ...pairing,
+      url: `http://127.0.0.1:${PORT}/?authPair=${encodeURIComponent(pairing.id)}`
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/auth/pair/complete' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin pairing request rejected.' });
+      return;
+    }
+    const profile = auth.getProfile(req.headers.cookie);
+    const body: Record<string, unknown> = await readJson(req).catch(() => ({}));
+    const id = typeof body.id === 'string' ? body.id : '';
+    if (!profile || !auth.completePairing(id, profile)) {
+      json(res, 401, { error: 'Authentication pairing failed or expired.' });
+      return;
+    }
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/auth/pair/claim' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin pairing request rejected.' });
+      return;
+    }
+    const body: Record<string, unknown> = await readJson(req).catch(() => ({}));
+    const id = typeof body.id === 'string' ? body.id : '';
+    const secret = typeof body.secret === 'string' ? body.secret : '';
+    const session = auth.claimPairing(id, secret);
+    if (!session) {
+      json(res, 202, { pending: true });
+      return;
+    }
+    res.setHeader('Set-Cookie', auth.sessionCookie(session.token, SECURE_COOKIE));
+    json(res, 200, { profile: session.profile });
+    return;
+  }
 
   if (url.pathname === '/api/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -72,7 +193,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/ice-servers') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ iceServers: DEFAULT_ICE_SERVERS }));
+    res.end(JSON.stringify({ iceServers: getIceServers() }));
     return;
   }
 
@@ -130,16 +251,31 @@ const server = http.createServer((req, res) => {
 });
 
 // Create WebSocket Server
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 let nextClientId = 1;
 
 wss.on('connection', (ws: WebSocket, req) => {
   const clientId = `peer-${Date.now().toString(36)}-${nextClientId++}`;
-  const client = roomManager.registerClient(clientId, ws);
+  const authProfile = auth.getProfile(req.headers.cookie);
+  const client = roomManager.registerClient(clientId, ws, authProfile?.name || 'Anonymous', authProfile?.id || null);
+  let rateWindowStartedAt = Date.now();
+  let messagesInWindow = 0;
+  let joinWindowStartedAt = Date.now();
+  let joinsInWindow = 0;
 
   ws.on('message', (data: Buffer | string) => {
     try {
+      const now = Date.now();
+      if (now - rateWindowStartedAt >= 10_000) {
+        rateWindowStartedAt = now;
+        messagesInWindow = 0;
+      }
+      if (++messagesInWindow > 500) {
+        ws.close(4008, 'Signaling rate limit exceeded');
+        return;
+      }
       const msg: ParsageMessage = JSON.parse(data.toString());
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
 
       switch (msg.type) {
         case 'ping':
@@ -151,6 +287,12 @@ wss.on('connection', (ws: WebSocket, req) => {
           break;
 
         case 'create-room': {
+          if (REQUIRE_AUTH && !authProfile) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Sign in is required to host a room.' }));
+            break;
+          }
+          if (typeof msg.name !== 'string' || msg.name.trim().length === 0) break;
+          msg.name = authProfile?.name || msg.name.trim().slice(0, 64);
           const { roomCode, state } = roomManager.createRoom(clientId, msg.name, msg.settings);
           console.log(`[Parsage] Room created: ${roomCode} by Host "${msg.name}" (${clientId})`);
           ws.send(JSON.stringify({
@@ -163,6 +305,20 @@ wss.on('connection', (ws: WebSocket, req) => {
         }
 
         case 'join-room': {
+          if (REQUIRE_AUTH && !authProfile) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Sign in is required to join a room.' }));
+            break;
+          }
+          if (now - joinWindowStartedAt >= 60_000) {
+            joinWindowStartedAt = now;
+            joinsInWindow = 0;
+          }
+          if (++joinsInWindow > 5) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Too many room join attempts. Try again later.' }));
+            break;
+          }
+          if (typeof msg.roomCode !== 'string' || typeof msg.name !== 'string') break;
+          msg.name = authProfile?.name || msg.name.trim().slice(0, 64) || 'Guest';
           const result = roomManager.joinRoom(clientId, msg.roomCode, msg.name, msg.role);
           if (result.success && result.state) {
             console.log(`[Parsage] Peer "${msg.name}" (${clientId}) joined room ${result.state.roomCode}`);
@@ -207,12 +363,12 @@ wss.on('connection', (ws: WebSocket, req) => {
         }
 
         case 'chat': {
-          roomManager.broadcastChat(clientId, msg.message);
+          if (typeof msg.message === 'string') roomManager.broadcastChat(clientId, msg.message.trim().slice(0, 500));
           break;
         }
 
         case 'reaction': {
-          roomManager.broadcastReaction(clientId, msg.emoji);
+          if (typeof msg.emoji === 'string') roomManager.broadcastReaction(clientId, msg.emoji.slice(0, 16));
           break;
         }
 
@@ -220,6 +376,10 @@ wss.on('connection', (ws: WebSocket, req) => {
         case 'answer':
         case 'ice-candidate': {
           if ('targetPeerId' in msg && msg.targetPeerId) {
+            if (!roomManager.canExchangeRtc(clientId, msg.targetPeerId)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'RTC exchange is not authorized for this peer.' }));
+              break;
+            }
             const forwardMsg = {
               ...msg,
               fromPeerId: clientId

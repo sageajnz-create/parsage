@@ -8,8 +8,6 @@ import {
 interface SettingsViewProps {
   settings: ParsageSettings;
   profile: UserProfile;
-  googleClientId?: string;
-  onUpdateGoogleClientId?: (id: string) => void;
   onUpdateClient: <K extends keyof ParsageSettings['client']>(key: K, val: ParsageSettings['client'][K]) => void;
   onUpdateHost: <K extends keyof ParsageSettings['host']>(key: K, val: ParsageSettings['host'][K]) => void;
   onUpdateGamepad: <K extends keyof ParsageSettings['gamepad']>(key: K, val: ParsageSettings['gamepad'][K]) => void;
@@ -23,8 +21,6 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   profile,
-  googleClientId,
-  onUpdateGoogleClientId,
   onUpdateClient,
   onUpdateHost,
   onUpdateGamepad,
@@ -37,15 +33,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('client');
   const [nameInput, setNameInput] = useState(profile.name);
   const [tagInput, setTagInput] = useState(profile.tag);
-  const [clientIdInput, setClientIdInput] = useState(googleClientId || '');
   const [savedNotice, setSavedNotice] = useState(false);
 
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateProfile({ name: nameInput, tag: tagInput });
-    if (onUpdateGoogleClientId && clientIdInput !== googleClientId) {
-      onUpdateGoogleClientId(clientIdInput);
-    }
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2000);
   };
@@ -425,21 +417,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
 
-            <div style={{ gridColumn: 'span 2' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
-                Google OAuth Client ID (Optional / Custom Domain):
-              </label>
-              <input
-                type="text"
-                value={clientIdInput}
-                onChange={(e) => setClientIdInput(e.target.value)}
-                placeholder="your-client-id.apps.googleusercontent.com"
-                style={{ width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-muted)', color: 'var(--fg-main)', padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem' }}
-              />
-            </div>
-
             <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
-              {savedNotice && <span style={{ color: 'var(--reggae-green-bright)', fontSize: '0.85rem' }}>✓ Profile & Client ID saved!</span>}
+              {savedNotice && <span style={{ color: 'var(--reggae-green-bright)', fontSize: '0.85rem' }}>✓ Profile saved!</span>}
               <button type="submit" className="btn btn-primary" style={{ padding: '10px 20px' }}>
                 Save Profile
               </button>

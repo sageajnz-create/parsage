@@ -15,13 +15,13 @@ import { AuthModal } from './components/AuthModal';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<MainView>('computers');
+  const [handledJoinLink, setHandledJoinLink] = useState(false);
 
   const {
     profile,
     updateProfile,
-    googleClientId,
-    setGoogleClientId,
-    triggerGoogleLogin,
+    authConfigured,
+    renderGoogleButton,
     logout,
     isAuthModalOpen,
     setIsAuthModalOpen,
@@ -69,6 +69,15 @@ export const App: React.FC = () => {
       setCurrentView('computers');
     }
   }, []);
+
+  useEffect(() => {
+    if (!wsConnected || handledJoinLink || roomState) return;
+    const joinParam = new URLSearchParams(window.location.search).get('join');
+    if (joinParam) {
+      joinRoom(joinParam, profile.name);
+      setHandledJoinLink(true);
+    }
+  }, [wsConnected, handledJoinLink, roomState, joinRoom, profile.name]);
 
   const handleStartHostingSession = () => {
     createRoom(profile.name, {
@@ -163,15 +172,13 @@ export const App: React.FC = () => {
               <SettingsView
                 settings={settings}
                 profile={profile}
-                googleClientId={googleClientId}
-                onUpdateGoogleClientId={setGoogleClientId}
                 onUpdateClient={updateClientSetting}
                 onUpdateHost={updateHostSetting}
                 onUpdateGamepad={updateGamepadSetting}
                 onUpdateNetwork={updateNetworkSetting}
                 onResetDefaults={resetDefaults}
                 onUpdateProfile={updateProfile}
-                onOpenGoogleAuth={triggerGoogleLogin}
+                onOpenGoogleAuth={() => setIsAuthModalOpen(true)}
                 onLogout={logout}
               />
             )}
@@ -186,7 +193,8 @@ export const App: React.FC = () => {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         profile={profile}
-        onGoogleLogin={triggerGoogleLogin}
+        authConfigured={authConfigured}
+        renderGoogleButton={renderGoogleButton}
         onUpdateProfile={updateProfile}
         authError={authError}
       />

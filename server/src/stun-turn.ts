@@ -22,8 +22,22 @@ export const DEFAULT_ICE_SERVERS: ParsageIceServer[] = [
   { urls: 'stun:stun.nextcloud.com:443' }
 ];
 
+export function getIceServers(env: NodeJS.ProcessEnv = process.env): ParsageIceServer[] {
+  const turnUrls = env.TURN_URLS?.split(',').map(url => url.trim()).filter(Boolean) || [];
+  if (turnUrls.length === 0) return DEFAULT_ICE_SERVERS;
+
+  return [
+    ...DEFAULT_ICE_SERVERS,
+    {
+      urls: turnUrls,
+      username: env.TURN_USERNAME || '',
+      credential: env.TURN_CREDENTIAL || ''
+    }
+  ];
+}
+
 export const RTC_CONFIGURATION: ParsageRtcConfiguration = {
-  iceServers: DEFAULT_ICE_SERVERS,
+  iceServers: getIceServers(),
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require'

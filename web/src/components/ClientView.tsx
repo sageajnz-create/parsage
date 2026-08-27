@@ -92,6 +92,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
     if (!document.pointerLockElement) return;
     onSendInput({
       type: 'mouse',
+      action: 'move',
       dx: e.movementX,
       dy: e.movementY
     });
@@ -103,7 +104,8 @@ export const ClientView: React.FC<ClientViewProps> = ({
       return;
     }
     onSendInput({
-      type: 'down',
+      type: 'mouse',
+      action: 'down',
       button: e.button
     });
   };
@@ -111,7 +113,8 @@ export const ClientView: React.FC<ClientViewProps> = ({
   const handleMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
     if (!document.pointerLockElement) return;
     onSendInput({
-      type: 'up',
+      type: 'mouse',
+      action: 'up',
       button: e.button
     });
   };
@@ -119,7 +122,8 @@ export const ClientView: React.FC<ClientViewProps> = ({
   const handleWheel = (e: React.WheelEvent<HTMLVideoElement>) => {
     if (!document.pointerLockElement) return;
     onSendInput({
-      type: 'wheel',
+      type: 'mouse',
+      action: 'wheel',
       deltaY: e.deltaY
     });
   };
@@ -167,13 +171,13 @@ export const ClientView: React.FC<ClientViewProps> = ({
           <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
-                Room Code (e.g. PARSAGE-R4STA-777):
+                Room Code (e.g. PARSAGE-R4STA-7K9M2QXP):
               </label>
               <input
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                placeholder="PARSAGE-XXXX"
+                placeholder="PARSAGE-WORD-ROOMCODE"
                 required
                 style={{
                   width: '100%',

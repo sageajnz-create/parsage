@@ -354,7 +354,7 @@ class InputManager:
             self.gamepads[slot].process_state(buttons, axes)
 
     def process_mouse_packet(self, data: dict):
-        action = data.get('type')
+        action = data.get('action')
         if action == 'move':
             dx = int(data.get('dx', 0))
             dy = int(data.get('dy', 0))
@@ -370,7 +370,7 @@ class InputManager:
             self.mouse_kbd.mouse_wheel(-1 if delta > 0 else 1)
 
     def process_keyboard_packet(self, data: dict):
-        action = data.get('type')
+        action = data.get('action')
         keycode = data.get('keycode', 0)
         if keycode > 0:
             self.mouse_kbd.key_event(keycode, action == 'down')

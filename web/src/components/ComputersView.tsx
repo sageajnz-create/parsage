@@ -75,7 +75,7 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
             type="text"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-            placeholder="Enter Room Code (e.g. PARSAGE-R4STA)"
+            placeholder="Enter Room Code (e.g. PARSAGE-R4STA-7K9M2QXP)"
             style={{
               flex: 1,
               background: 'var(--bg-input)',

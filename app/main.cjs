@@ -1,14 +1,45 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
+const net = require('net');
 
 let mainWindow = null;
 let serverProcess = null;
 let uinputProcess = null;
 const PORT = 7777;
+const INPUT_PORT = 7778;
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+let inputSocket = null;
+
+function getJoinCode(argv = process.argv) {
+  const argument = argv.find((value) => value.startsWith('--join='));
+  if (!argument) return null;
+  const code = argument.slice('--join='.length).trim().toUpperCase();
+  return /^PARSAGE-[A-Z0-9]+-([0-9]{3}|[A-Z2-9]{8})$/.test(code) ? code : null;
+}
+
+function sendInputPacket(packet) {
+  if (!packet || typeof packet !== 'object') return;
+  const payload = `${JSON.stringify(packet)}\n`;
+
+  const write = () => {
+    if (inputSocket && !inputSocket.destroyed) inputSocket.write(payload);
+  };
+
+  if (inputSocket && !inputSocket.destroyed) {
+    write();
+    return;
+  }
+
+  inputSocket = net.createConnection({ host: '127.0.0.1', port: INPUT_PORT }, write);
+  inputSocket.on('error', (err) => {
+    console.error('[Parsage App] Input bridge unavailable:', err.message);
+    inputSocket = null;
+  });
+  inputSocket.on('close', () => { inputSocket = null; });
+}
 
 // Spawn background services (uinput & server)
 function startBackgroundServices() {
@@ -41,6 +72,10 @@ function stopBackgroundServices() {
   if (uinputProcess) {
     try { uinputProcess.kill('SIGTERM'); } catch (e) {}
     uinputProcess = null;
+  }
+  if (inputSocket) {
+    inputSocket.destroy();
+    inputSocket = null;
   }
   if (serverProcess) {
     try { serverProcess.kill('SIGTERM'); } catch (e) {}
@@ -82,12 +117,15 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
   waitForServer(() => {
-    mainWindow.loadURL(`http://127.0.0.1:${PORT}`);
+    const joinCode = getJoinCode();
+    const query = joinCode ? `?join=${encodeURIComponent(joinCode)}` : '';
+    mainWindow.loadURL(`http://127.0.0.1:${PORT}/${query}`);
   });
 
   mainWindow.on('closed', () => {
@@ -101,14 +139,25 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (mainWindow) {
+      const joinCode = getJoinCode(argv);
+      if (joinCode) mainWindow.loadURL(`http://127.0.0.1:${PORT}/?join=${encodeURIComponent(joinCode)}`);
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
 
   app.whenReady().then(() => {
+    ipcMain.on('input-packet', (event, packet) => {
+      if (event.senderFrame.url.startsWith(`http://127.0.0.1:${PORT}/`)) sendInputPacket(packet);
+    });
+    ipcMain.handle('open-external', async (event, url) => {
+      if (!event.senderFrame.url.startsWith(`http://127.0.0.1:${PORT}/`)) return false;
+      if (typeof url !== 'string' || !url.startsWith(`http://127.0.0.1:${PORT}/?authPair=`)) return false;
+      await shell.openExternal(url);
+      return true;
+    });
     startBackgroundServices();
     createWindow();
 

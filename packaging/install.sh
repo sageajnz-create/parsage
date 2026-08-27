@@ -35,6 +35,12 @@ if command -v apt &>/dev/null; then
     fi
 elif command -v pacman &>/dev/null; then
     echo -e "${GOLD}Detected Arch/Omarchy base.${NC}"
+    if ! gst-inspect-1.0 webrtcbin &>/dev/null || ! gst-inspect-1.0 vah264enc &>/dev/null; then
+        echo -e "Installing native PipeWire/WebRTC encoder dependencies..."
+        if sudo -n true 2>/dev/null || [ -t 0 ]; then
+            sudo pacman -S --needed --noconfirm gst-plugins-bad gst-plugins-ugly gst-plugin-va python-gobject libportal
+        fi
+    fi
 fi
 
 echo -e "\n${BOLD}${TEAL}[2/4] Checking /dev/uinput permissions for gamepads...${NC}"
@@ -56,6 +62,11 @@ fi
 
 echo -e "\n${BOLD}${TEAL}[3/4] Installing Parsage to ${INSTALL_DIR}...${NC}"
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
+
+# Remove old fingerprinted bundles so upgrades cannot accumulate stale assets.
+if [ -d "$INSTALL_DIR/web/dist/assets" ]; then
+    find "$INSTALL_DIR/web/dist/assets" -maxdepth 1 -type f -delete
+fi
 
 # Copy files
 cp -r "$SCRIPT_DIR/app" "$INSTALL_DIR/"
@@ -94,6 +105,13 @@ DESKTOP_EOF
 
 chmod +x "$APP_DIR/parsage.desktop"
 update-desktop-database "$APP_DIR" 2>/dev/null || true
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/parsage"
+mkdir -p "$CONFIG_DIR"
+if [ ! -e "$CONFIG_DIR/env" ]; then
+    cp "$SCRIPT_DIR/packaging/parsage.env.example" "$CONFIG_DIR/env"
+    chmod 600 "$CONFIG_DIR/env"
+fi
 
 echo -e "\n${GREEN}============================================================${NC}"
 echo -e "${BOLD}${GREEN}  🎉 PARSAGE INSTALLED SUCCESSFULLY!${NC}"

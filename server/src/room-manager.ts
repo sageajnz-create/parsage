@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { randomInt } from 'node:crypto';
 import { PeerInfo, RoomState, ParsageMessage, PeerRole, ChatMessage, EmojiReaction } from './types.js';
 
 export interface ConnectedClient {
@@ -9,6 +10,7 @@ export interface ConnectedClient {
   role: PeerRole;
   slot: number | null;
   approved: boolean;
+  authUserId: string | null;
   permissions: {
     gamepad: boolean;
     mouse: boolean;
@@ -22,22 +24,24 @@ const REGGAE_WORDS = [
   'R4STA', 'ZION', 'ROOTS', 'IRIE', 'SAGE', 'CHEEZ', 'DUB', 'VIBE',
   'LION', 'JAM', 'GROOVE', 'SOLAR', 'CHILL', 'BEAT', 'SKANK', 'MELODY'
 ];
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export class RoomManager {
   private rooms: Map<string, RoomState> = new Map();
   private clients: Map<string, ConnectedClient> = new Map();
 
   public generateRoomCode(): string {
-    const word = REGGAE_WORDS[Math.floor(Math.random() * REGGAE_WORDS.length)];
-    const num = Math.floor(100 + Math.random() * 900);
-    const code = `PARSAGE-${word}-${num}`;
+    const word = REGGAE_WORDS[randomInt(REGGAE_WORDS.length)];
+    let suffix = '';
+    for (let i = 0; i < 8; i++) suffix += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+    const code = `PARSAGE-${word}-${suffix}`;
     if (this.rooms.has(code)) {
       return this.generateRoomCode();
     }
     return code;
   }
 
-  public registerClient(id: string, ws: WebSocket, name: string = 'Anonymous'): ConnectedClient {
+  public registerClient(id: string, ws: WebSocket, name: string = 'Anonymous', authUserId: string | null = null): ConnectedClient {
     const client: ConnectedClient = {
       id,
       name,
@@ -46,6 +50,7 @@ export class RoomManager {
       role: 'client',
       slot: null,
       approved: true,
+      authUserId,
       permissions: {
         gamepad: true,
         mouse: false,
@@ -60,6 +65,16 @@ export class RoomManager {
 
   public getClient(id: string): ConnectedClient | undefined {
     return this.clients.get(id);
+  }
+
+  public canExchangeRtc(senderId: string, targetId: string): boolean {
+    const sender = this.clients.get(senderId);
+    const target = this.clients.get(targetId);
+    if (!sender || !target || !sender.roomCode || sender.roomCode !== target.roomCode) return false;
+    const room = this.rooms.get(sender.roomCode);
+    if (!room) return false;
+    if (sender.id === room.hostId) return target.approved;
+    return sender.approved && target.id === room.hostId;
   }
 
   public removeClient(id: string): { roomCode: string | null; wasHost: boolean } {
@@ -118,7 +133,7 @@ export class RoomManager {
         maxBitrateMbps: settings?.maxBitrateMbps ?? 20,
         targetFps: settings?.targetFps ?? 60,
         resolution: settings?.resolution ?? '1080p',
-        requireApproval: settings?.requireApproval ?? false,
+        requireApproval: settings?.requireApproval ?? true,
         allowMouseKeyboard: settings?.allowMouseKeyboard ?? true
       }
     };
@@ -143,6 +158,7 @@ export class RoomManager {
     client.name = peerName;
     client.role = role;
     client.approved = !room.settings.requireApproval;
+    client.joinedAt = Date.now();
 
     let assignedSlot: number | null = null;
     if (role === 'client' && client.approved) {
@@ -205,6 +221,7 @@ export class RoomManager {
     }
 
     this.broadcastRoomState(room.roomCode);
+    this.sendToPeer(targetPeerId, { type: 'peer-approved', hostId, state: room });
     return true;
   }
 
@@ -323,6 +340,39 @@ export class RoomManager {
 
   public getRoom(roomCode: string): RoomState | undefined {
     return this.rooms.get(roomCode.trim().toUpperCase());
+  }
+
+  public expirePending(now = Date.now(), timeoutMs = 60_000): string[] {
+    const expired: string[] = [];
+    for (const client of this.clients.values()) {
+      if (client.roomCode && client.role !== 'host' && !client.approved && now - client.joinedAt >= timeoutMs) {
+        expired.push(client.id);
+      }
+    }
+    for (const id of expired) {
+      const client = this.clients.get(id);
+      this.sendToPeer(id, { type: 'error', message: 'The host approval request expired.' });
+      client?.ws.close(4008, 'Approval expired');
+      this.removeClient(id);
+    }
+    return expired;
+  }
+
+  public expireRooms(now = Date.now(), maxAgeMs = 12 * 60 * 60_000): string[] {
+    const expired: string[] = [];
+    for (const room of this.rooms.values()) {
+      if (now - room.createdAt >= maxAgeMs) expired.push(room.roomCode);
+    }
+    for (const roomCode of expired) {
+      const room = this.rooms.get(roomCode);
+      if (!room) continue;
+      this.broadcastToRoom(roomCode, { type: 'error', message: 'This room expired.' });
+      const participantIds = [room.hostId, ...room.peers.map(peer => peer.id)].filter(Boolean) as string[];
+      for (const id of participantIds) this.clients.get(id)?.ws.close(4009, 'Room expired');
+      this.rooms.delete(roomCode);
+      for (const id of participantIds) this.clients.delete(id);
+    }
+    return expired;
   }
 
   public broadcastToRoom(roomCode: string, message: ParsageMessage, excludePeerId?: string): void {

@@ -13,7 +13,7 @@ interface HostViewProps {
   lanIps: string[];
   chatMessages: ChatMessage[];
   onCreateRoom: (name: string, settings?: any) => void;
-  onStartCapture: (fps: number, resolution: string) => Promise<MediaStream | null>;
+  onStartCapture: (fps: number, resolution: string, maxBitrateMbps: number) => Promise<MediaStream | null>;
   onApprovePeer: (peerId: string, slot?: number | null) => void;
   onUpdatePermissions: (peerId: string, permissions: PeerInfo['permissions']) => void;
   onKickPeer: (peerId: string) => void;
@@ -41,7 +41,7 @@ export const HostView: React.FC<HostViewProps> = ({
   const [targetFps, setTargetFps] = useState(60);
   const [resolution, setResolution] = useState('1080p');
   const [maxBitrate, setMaxBitrate] = useState(25);
-  const [requireApproval, setRequireApproval] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(true);
   const [allowMouseKeyboard, setAllowMouseKeyboard] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copiedLan, setCopiedLan] = useState(false);
@@ -66,7 +66,7 @@ export const HostView: React.FC<HostViewProps> = ({
   };
 
   const handleStartCapture = async () => {
-    await onStartCapture(targetFps, resolution);
+    await onStartCapture(targetFps, resolution, maxBitrate);
   };
 
   const copyRoomLink = () => {
@@ -112,7 +112,7 @@ export const HostView: React.FC<HostViewProps> = ({
             <h2 style={{ fontSize: '1.6rem', fontWeight: 800 }}>Linux Host Stream Center</h2>
           </div>
           <p style={{ color: 'var(--fg-muted)', marginTop: '4px', fontSize: '0.9rem' }}>
-            Hardware accelerated desktop & game streaming with full Parsec co-op feature parity on Omarchy Linux.
+            Linux-first desktop and game streaming, actively progressing toward Parsec-class reliability.
           </p>
         </div>
 
@@ -309,13 +309,13 @@ export const HostView: React.FC<HostViewProps> = ({
           {/* Feature Parity & LAN Guide */}
           <div className="card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <h3 style={{ fontSize: '1.2rem', color: 'var(--reggae-green-bright)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              🌿 Parsec Feature Parity on Linux
+              🌿 Parsage Streaming Foundation
             </h3>
             <ul style={{ color: 'var(--fg-main)', fontSize: '0.88rem', lineHeight: '1.8', paddingLeft: '20px' }}>
               <li><strong>Zero Router Config:</strong> WebRTC ICE & STUN hole-punching for seamless NAT traversal.</li>
-              <li><strong>Hardware VA-API & NVENC:</strong> Direct hardware frame encoding on AMD Radeon & NVIDIA GPUs.</li>
+              <li><strong>WebRTC Encoding:</strong> Browser-managed low-latency video with hardware acceleration when Chromium supports it.</li>
               <li><strong>4 Virtual Xbox Controllers:</strong> Native Linux <code>/dev/uinput</code> joysticks for local multiplayer.</li>
-              <li><strong>Force Feedback / Rumble:</strong> Dual-motor vibration forwarding to client gamepads.</li>
+              <li><strong>Input Permissions:</strong> Host-controlled gamepad, mouse, and keyboard access.</li>
               <li><strong>In-Stream Chat & Reactions:</strong> Floating overlay menu with live party reactions.</li>
               <li><strong>LAN Direct Connect:</strong> 0ms local network discovery for home gaming sessions.</li>
             </ul>

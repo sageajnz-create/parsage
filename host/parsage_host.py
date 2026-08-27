@@ -41,7 +41,7 @@ def main():
     print("  ⚡ Listening for WebRTC DataChannel inputs on 127.0.0.1:7778\n")
     print("  To connect with your buddies:")
     print("  1. Launch the web interface at http://localhost:7777 (or npm run dev:web)")
-    print("  2. Click 'Start Hosting Session' to get your room code (e.g. PARSAGE-R4STA)")
+    print("  2. Click 'Start Hosting Session' to get your secure room code")
     print("  3. Share the code with your friends to join instantly!\n")
 
     def handle_exit(sig, frame):

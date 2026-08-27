@@ -79,6 +79,7 @@ export type ParsageMessage =
   | { type: 'room-created'; roomCode: string; hostId: string; state: RoomState }
   | { type: 'room-joined'; roomCode: string; peerId: string; state: RoomState }
   | { type: 'room-state'; state: RoomState }
+  | { type: 'peer-approved'; hostId: string; state: RoomState }
   | { type: 'peer-joined'; peer: PeerInfo }
   | { type: 'peer-left'; peerId: string }
   | { type: 'approve-peer'; peerId: string; slot?: number | null }
