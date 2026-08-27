@@ -1,96 +1,85 @@
-# 🌿 PARSAGE
-### *Plug-and-Play Low-Latency Game & Desktop Streaming for Linux (Wayland/Omarchy) & Friends*
+# 🌿 Parsage
 
-> **Created with ❤️ by Sage & Antigravity**  
-> *"One love, low latency, no limits."*
+[![Release](https://img.shields.io/github/v/release/sageajnz-create/parsage?color=3DDC5B&label=release)](https://github.com/sageajnz-create/parsage/releases)
+[![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%7C%20X11)-FFD966)](#)
+[![Distros](https://img.shields.io/badge/distros-Mint%20%7C%20Ubuntu%20%7C%20Arch%20%7C%20Debian%20%7C%20Fedora-4FBFA8)](#)
+[![License](https://img.shields.io/badge/license-MIT-informational)](#)
 
----
-
-## 🎮 What is Parsage?
-
-**Parsage** is a modern, open-source alternative to Parsec engineered specifically to solve the Linux hosting problem. On Linux (especially Wayland / Hyprland / Omarchy), standard tools often fail to host co-op sessions or require painful port-forwarding and manual pairing.
-
-Parsage gives you:
-- **Instant Room Codes & WebRTC P2P NAT Traversal** (zero router port-forwarding needed).
-- **Native Wayland & Omarchy Host Support** (zero-copy PipeWire screen and audio monitor capture).
-- **Hardware Acceleration**: AMD VA-API (Navi 23 / Radeon RX 6650 XT) and NVIDIA NVENC support for sub-4ms video compression.
-- **4 Virtual Xbox 360 Controllers (`/dev/uinput`)**: Linux games and emulators (Steam, Proton, RetroArch, Dolphin, Smash, Overcooked) see your remote buddies as physical local controllers.
-- **Zero-Install Client for Buddies**: Friends on Windows, macOS, or Linux can join straight from their web browser (Chrome, Edge, Firefox) or desktop app, plug in their controllers, and start playing.
-- **Reggae Theme (Stones & Cheese)** matching Omarchy's system theme.
+> High-performance, plug-and-play game and desktop streaming for Linux.  
+> *"Ultra-low latency, zero config, no limits."*  
+> **Created with ❤️ by Sage & Antigravity**
 
 ---
 
-## 🎨 Reggae Theme Palette
+## ⚡ What is Parsage?
 
-```
-Role            Hex Code  Description
-─────────────────────────────────────────────────────────────
-Background Deep #1B1A17   Deep slate canvas & window
-Card Surface    #272520   Card backgrounds & panels
-Text Warm       #F3E5AB   Warm sand / cream foreground
-Reggae Green    #1EB53A   Connected, Low Latency, Player 1
-Reggae Gold     #FFC72C   Host active, primary actions, Player 2
-Reggae Red      #E8112D   Disconnect, high jitter, Player 3
-Zion Teal       #4FBFA8   Latency graphs, visualizer, Player 4
-```
+**Parsage** is a lightweight, low-latency game and desktop streaming suite designed specifically for Linux (Wayland / Hyprland / X11) and cross-platform clients. It brings native Parsec-style host and client capabilities to Linux with zero router configuration.
+
+🌐 **Official Website & Downloads**: [https://sageajnz-create.github.io/parsage/](https://sageajnz-create.github.io/parsage/)
 
 ---
 
-## 🚀 Quick Start
+## 🌟 Key Features
 
-### 1. Launch Host & Hub
+- **⚡ Sub-4ms Hardware VA-API & NVENC**: Direct PipeWire capture with AMD Radeon and NVIDIA hardware acceleration supporting 60, 120, 144, and 240 FPS gameplay.
+- **🎮 4-Player Virtual Xbox 360 Controllers**: Linux kernel `/dev/uinput` ioctl driver exposing 4 genuine Xbox 360 joysticks with dual-motor force feedback rumble.
+- **🌐 Zero Port-Forwarding P2P**: WebRTC STUN hole-punching creates direct UDP channels without router setup.
+- **📡 Local LAN Direct Connect (<1ms)**: Auto-discovers local network IPs to bypass public internet when on the same Wi-Fi or Ethernet.
+- **🖥️ Standalone Native Desktop App**: Both host and client live in one single application window with no browser overhead.
+- **🕹️ Couch Co-op Arcade**: Browse public party rooms or host multiplayer sessions for games like Smash, Overcooked, and Steam co-op.
+- **👥 Friends & Presence**: Live status indicators, gamer tag invites, and 1-click room joining.
+- **⚙️ Full Settings Matrix**: Video renderer, codec preferences (H.264/HEVC/AV1), stick deadzone calibration, and host permissions.
+
+---
+
+## 📦 Installation
+
+### Option A: Linux Mint / Ubuntu / Debian (`.deb` Package)
+Download the latest `.deb` package from [Releases](https://github.com/sageajnz-create/parsage/releases/latest) and double-click to install (or run):
 ```bash
-# Using the Parsage CLI
-./bin/parsage host
-
-# Or with npm
-npm run dev:server
+sudo dpkg -i parsage_0.2.0_all.deb
 ```
 
-### 2. Open Web Control Center
-Visit **`http://localhost:7777`** in your browser.
-1. Click **Start Hosting Session** to get your room code (e.g. `PARSAGE-R4STA-777`).
-2. Select your game or full monitor.
-3. Send the room link to your buddies.
-4. Plug in controllers and enjoy seamless co-op gaming!
+### Option B: Universal 1-Command Terminal Installer
+Install on any Linux distribution (Mint, Ubuntu, Arch, Fedora, Debian, Pop!_OS):
+```bash
+curl -fsSL https://raw.githubusercontent.com/sageajnz-create/parsage/master/packaging/install.sh | bash
+```
 
 ---
 
-## 🕹️ CLI Commands
+## 🚀 Usage
 
-- `./bin/parsage host` — Starts the host engine, signaling broker, and 4 virtual Xbox 360 gamepads.
-- `./bin/parsage join <CODE>` — Joins an active room session.
-- `./bin/parsage status` — Checks system capabilities, GPU encoder, PipeWire, and uinput state.
-- `./bin/parsage uinput-setup` — Configures udev rules for non-root `/dev/uinput` gamepad access.
+Launch Parsage from your Application Menu / Start Menu, or type:
+```bash
+parsage
+```
+
+### CLI Commands:
+- `parsage` — Launch the standalone desktop application
+- `parsage host` — Start hosting your desktop and launch the app
+- `parsage join <CODE>` — Join a live session with room code (e.g. `PARSAGE-OMEGA-777`)
+- `parsage status` — Run system diagnostics for VA-API, PipeWire, and uinput
+- `parsage uinput-setup` — Configure non-root udev rules for virtual controllers
 
 ---
 
-## 🛠️ Architecture
+## 🛠️ Project Structure
 
 ```
 parsage/
-├── bin/
-│   └── parsage                     # Unified CLI launcher
-├── server/
-│   ├── src/
-│   │   ├── index.ts                # WebSocket & HTTP server
-│   │   ├── room-manager.ts         # Room codes & slot management
-│   │   ├── stun-turn.ts            # Public STUN/TURN configuration
-│   │   └── types.ts                # Shared message protocols
-├── host/
-│   ├── parsage_host.py             # Linux host daemon & bridge
-│   ├── uinput_service.py           # 4-Slot Virtual Xbox 360 controller injector
-│   └── pipewire_capture.py         # Hardware & PipeWire diagnostics
-├── web/
-│   ├── src/
-│   │   ├── components/             # Reggae UI, HostView, ClientView, GamepadTester, StatsOverlay
-│   │   ├── hooks/                  # useWebRTC, useGamepad, useStats
-│   │   └── styles/theme.css        # Stones & Cheese Reggae design system
-└── packaging/                      # udev rules & desktop launcher
+├── app/          # Native Electron Desktop Application Wrapper
+├── host/         # Linux /dev/uinput kernel driver & PipeWire diagnostics
+├── server/       # WebRTC signaling, room hub, and LAN IP discovery
+├── web/          # React + Vite desktop client & in-stream overlay
+├── website/      # Public download & marketing website (GitHub Pages)
+├── packaging/    # .deb package builder & universal installer
+└── bin/          # Unified CLI binary runner
 ```
 
 ---
 
-## 📜 Credits & License
-Built with passion by **Sage & Antigravity**.  
-Licensed under the MIT License.
+## 📜 License & Credits
+
+- Created with ❤️ by **Sage & Antigravity**
+- Open source under the [MIT License](LICENSE)

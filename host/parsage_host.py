@@ -24,7 +24,7 @@ def main():
     print("""
 ======================================================================
   🌿 PARSAGE LINUX HOST ENGINE
-  "One love, low latency, no limits."
+  "Ultra-low latency, zero config, no limits."
   Created with ❤️ by Sage & Antigravity
 ======================================================================
     """)

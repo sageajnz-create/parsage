@@ -14,11 +14,11 @@
       --fg-main: #F3E5AB;
       --fg-bright: #FFF3C4;
       --fg-muted: #A39B82;
-      --reggae-green: #1EB53A;
-      --reggae-green-bright: #3DDC5B;
-      --reggae-gold: #FFC72C;
-      --reggae-gold-bright: #FFD966;
-      --reggae-red: #E8112D;
+      --brand-green: #1EB53A;
+      --brand-green-bright: #3DDC5B;
+      --brand-gold: #FFC72C;
+      --brand-gold-bright: #FFD966;
+      --brand-red: #E8112D;
       --zion-teal: #4FBFA8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,7 +46,7 @@
     .brand h1 {
       font-size: 1.6rem;
       font-weight: 900;
-      background: linear-gradient(90deg, var(--reggae-red), var(--reggae-gold), var(--reggae-green));
+      background: linear-gradient(90deg, var(--brand-red), var(--brand-gold), var(--brand-green));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
@@ -59,8 +59,8 @@
       font-size: 0.75rem;
       font-weight: bold;
       background: rgba(255, 199, 44, 0.15);
-      color: var(--reggae-gold);
-      border: 1px solid var(--reggae-gold);
+      color: var(--brand-gold);
+      border: 1px solid var(--brand-gold);
     }
     
     /* Hero Section */
@@ -97,20 +97,20 @@
       cursor: pointer;
     }
     .btn-gold {
-      background: var(--reggae-gold);
+      background: var(--brand-gold);
       color: #1B1A17;
     }
     .btn-gold:hover {
-      background: var(--reggae-gold-bright);
+      background: var(--brand-gold-bright);
       box-shadow: 0 0 20px rgba(255, 199, 44, 0.4);
       transform: translateY(-2px);
     }
     .btn-green {
-      background: var(--reggae-green);
+      background: var(--brand-green);
       color: #FFFFFF;
     }
     .btn-green:hover {
-      background: var(--reggae-green-bright);
+      background: var(--brand-green-bright);
       box-shadow: 0 0 20px rgba(30, 181, 58, 0.4);
       transform: translateY(-2px);
     }
@@ -120,7 +120,7 @@
       color: var(--fg-main);
     }
     .btn-outline:hover {
-      border-color: var(--reggae-gold);
+      border-color: var(--brand-gold);
       color: var(--fg-bright);
     }
 
@@ -135,7 +135,7 @@
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
       transition: transform 0.2s ease, border-color 0.2s ease;
     }
-    .card:hover { transform: translateY(-4px); border-color: var(--reggae-gold); }
+    .card:hover { transform: translateY(-4px); border-color: var(--brand-gold); }
     .card-icon {
       width: 52px;
       height: 52px;
@@ -163,7 +163,7 @@
       border-radius: 10px;
       padding: 16px 20px;
       font-family: monospace;
-      color: var(--reggae-gold);
+      color: var(--brand-gold);
       font-size: 0.95rem;
       display: flex;
       justify-content: space-between;
@@ -210,7 +210,7 @@
       </div>
       <h2>
         Play Local Co-op with Friends.<br>
-        <span style="background: linear-gradient(90deg, var(--reggae-red), var(--reggae-gold), var(--reggae-green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        <span style="background: linear-gradient(90deg, var(--brand-red), var(--brand-gold), var(--brand-green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
           Hosted Natively on Linux.
         </span>
       </h2>
@@ -244,7 +244,7 @@
     <div class="container">
       <div class="grid-3">
         <div class="card">
-          <div class="card-icon" style="background: rgba(30, 181, 58, 0.15); color: var(--reggae-green-bright); border: 1px solid var(--reggae-green);">
+          <div class="card-icon" style="background: rgba(30, 181, 58, 0.15); color: var(--brand-green-bright); border: 1px solid var(--brand-green);">
             ⚡
           </div>
           <h3>Sub-4ms Hardware VA-API</h3>
@@ -254,7 +254,7 @@
         </div>
 
         <div class="card">
-          <div class="card-icon" style="background: rgba(255, 199, 44, 0.15); color: var(--reggae-gold); border: 1px solid var(--reggae-gold);">
+          <div class="card-icon" style="background: rgba(255, 199, 44, 0.15); color: var(--brand-gold); border: 1px solid var(--brand-gold);">
             🎮
           </div>
           <h3>4-Player Virtual Xbox Joysticks</h3>
@@ -286,7 +286,7 @@
             <thead>
               <tr>
                 <th>FEATURE</th>
-                <th style="color: var(--reggae-gold);">🌿 PARSAGE</th>
+                <th style="color: var(--brand-gold);">🌿 PARSAGE</th>
                 <th>PARSEC (WINDOWS ONLY HOST)</th>
                 <th>SUNSHINE / MOONLIGHT</th>
               </tr>
@@ -294,25 +294,25 @@
             <tbody>
               <tr>
                 <td><strong>Linux Wayland & Mint Hosting</strong></td>
-                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ Native (PipeWire)</td>
-                <td style="color: var(--reggae-red); font-weight: bold;">❌ Cannot Host on Linux</td>
+                <td style="color: var(--brand-green-bright); font-weight: bold;">✅ Native (PipeWire)</td>
+                <td style="color: var(--brand-red); font-weight: bold;">❌ Cannot Host on Linux</td>
                 <td>⚠️ Requires Manual Setup</td>
               </tr>
               <tr>
                 <td><strong>Zero Port Forwarding Needed</strong></td>
-                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ WebRTC STUN P2P</td>
+                <td style="color: var(--brand-green-bright); font-weight: bold;">✅ WebRTC STUN P2P</td>
                 <td>✅ Proprietary NAT</td>
-                <td style="color: var(--reggae-red); font-weight: bold;">❌ Manual Ports / UPnP</td>
+                <td style="color: var(--brand-red); font-weight: bold;">❌ Manual Ports / UPnP</td>
               </tr>
               <tr>
                 <td><strong>Unified Host & Client in 1 App</strong></td>
-                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ 1-Click App</td>
+                <td style="color: var(--brand-green-bright); font-weight: bold;">✅ 1-Click App</td>
                 <td>✅ 1-Click App</td>
-                <td style="color: var(--reggae-red); font-weight: bold;">❌ Separate Apps</td>
+                <td style="color: var(--brand-red); font-weight: bold;">❌ Separate Apps</td>
               </tr>
               <tr>
                 <td><strong>Multi-Gamepad Kernel Injection</strong></td>
-                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ 4x Xbox 360 (/dev/uinput)</td>
+                <td style="color: var(--brand-green-bright); font-weight: bold;">✅ 4x Xbox 360 (/dev/uinput)</td>
                 <td>⚠️ Windows ViGEm only</td>
                 <td>⚠️ Virtual Joysticks</td>
               </tr>
@@ -327,7 +327,7 @@
   <footer>
     <div class="container">
       <p style="font-size: 1rem; color: var(--fg-bright); margin-bottom: 6px;">
-        🌿 <strong>Parsage v0.2.0</strong> — <em>"One love, low latency, no limits."</em>
+        🌿 <strong>Parsage v0.2.0</strong> — <em>"Ultra-low latency, zero config, no limits."</em>
       </p>
       <p>Created with ❤️ by <strong>Sage & Antigravity</strong> • Open Source under MIT License</p>
     </div>
