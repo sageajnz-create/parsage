@@ -13,7 +13,7 @@ import struct
 import shutil
 
 PACKAGE_NAME = "parsage"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 MAINTAINER = "Sage & Antigravity <sage@parsage.local>"
 DESCRIPTION = "Plug-and-play low-latency game & desktop streaming for Linux and friends"
 SECTION = "games"
@@ -61,8 +61,8 @@ Architecture: {ARCHITECTURE}
 Maintainer: {MAINTAINER}
 Depends: {DEPENDS}
 Description: {DESCRIPTION}
- Parsage is a modern low-latency game and desktop streaming system
- designed specifically for Linux (Wayland/X11) and cross-platform clients.
+ Parsage is a native low-latency game and desktop streaming suite
+ designed for Linux (Wayland/X11) and cross-platform clients.
  Features native PipeWire/VA-API hardware capture and zero-latency
  virtual Xbox 360 multi-gamepad injection via /dev/uinput.
 """
@@ -110,7 +110,7 @@ Description: {DESCRIPTION}
     data_tar_io = io.BytesIO()
     with tarfile.open(fileobj=data_tar_io, mode="w:gz") as tar:
         base_install_path = "/usr/share/parsage"
-        for folder in ["bin", "host", "server", "web", "packaging"]:
+        for folder in ["app", "bin", "host", "server", "web", "packaging"]:
             folder_path = os.path.join(ROOT_DIR, folder)
             if not os.path.exists(folder_path):
                 continue

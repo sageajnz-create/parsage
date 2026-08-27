@@ -1,0 +1,7 @@
+{
+  "name": "parsage-desktop",
+  "version": "0.2.0",
+  "main": "main.cjs",
+  "description": "Parsage Native Desktop Client",
+  "author": "Sage & Antigravity"
+}
