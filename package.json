@@ -1,0 +1,14 @@
+{
+  "name": "parsage",
+  "version": "0.1.0",
+  "description": "Plug-and-play low-latency game and desktop streaming for Linux and friends",
+  "author": "Sage & Antigravity",
+  "license": "MIT",
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build",
+    "start": "node server/dist/index.js",
+    "host": "python3 host/parsage_host.py"
+  }
+}

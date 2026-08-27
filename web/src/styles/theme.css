@@ -1,0 +1,199 @@
+:root {
+  --bg-deep: #1B1A17;
+  --bg-card: #272520;
+  --bg-card-hover: #343028;
+  --bg-input: #151412;
+  --border-muted: #4A4536;
+  --border-accent: #FFC72C;
+  
+  --fg-main: #F3E5AB;
+  --fg-bright: #FFF3C4;
+  --fg-muted: #A39B82;
+
+  --reggae-green: #1EB53A;
+  --reggae-green-bright: #3DDC5B;
+  --reggae-gold: #FFC72C;
+  --reggae-gold-bright: #FFD966;
+  --reggae-red: #E8112D;
+  --reggae-red-bright: #FF4757;
+  --zion-teal: #4FBFA8;
+  --zion-teal-bright: #6FE0C8;
+
+  --slot-p1: #1EB53A;
+  --slot-p2: #FFC72C;
+  --slot-p3: #E8112D;
+  --slot-p4: #4FBFA8;
+
+  --font-mono: 'JetBrainsMono Nerd Font', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--fg-main);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+code, pre, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-muted);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--reggae-gold);
+}
+
+/* Reggae Glows and Accents */
+.reggae-gradient-text {
+  background: linear-gradient(90deg, var(--reggae-red) 0%, var(--reggae-gold) 50%, var(--reggae-green) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.reggae-border-gradient {
+  border-image: linear-gradient(90deg, var(--reggae-red), var(--reggae-gold), var(--reggae-green)) 1;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-muted);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--reggae-gold);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--reggae-gold);
+  color: #1B1A17;
+  font-weight: 700;
+}
+.btn-primary:hover {
+  background: var(--reggae-gold-bright);
+  box-shadow: 0 0 16px rgba(255, 199, 44, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-success {
+  background: var(--reggae-green);
+  color: #FFFFFF;
+}
+.btn-success:hover {
+  background: var(--reggae-green-bright);
+  box-shadow: 0 0 16px rgba(30, 181, 58, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background: var(--reggae-red);
+  color: #FFFFFF;
+}
+.btn-danger:hover {
+  background: var(--reggae-red-bright);
+  box-shadow: 0 0 16px rgba(232, 17, 45, 0.4);
+}
+
+.btn-secondary {
+  background: var(--bg-card-hover);
+  color: var(--fg-main);
+  border: 1px solid var(--border-muted);
+}
+.btn-secondary:hover {
+  background: var(--border-muted);
+  border-color: var(--reggae-gold);
+  color: var(--fg-bright);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-reggae {
+  background: rgba(255, 199, 44, 0.15);
+  color: var(--reggae-gold);
+  border: 1px solid var(--reggae-gold);
+}
+
+.badge-green {
+  background: rgba(30, 181, 58, 0.15);
+  color: var(--reggae-green-bright);
+  border: 1px solid var(--reggae-green);
+}
+
+.badge-red {
+  background: rgba(232, 17, 45, 0.15);
+  color: var(--reggae-red-bright);
+  border: 1px solid var(--reggae-red);
+}
+
+.badge-teal {
+  background: rgba(79, 191, 168, 0.15);
+  color: var(--zion-teal-bright);
+  border: 1px solid var(--zion-teal);
+}
+
+/* Slot Badges */
+.slot-p1 { color: var(--slot-p1); border-color: var(--slot-p1); }
+.slot-p2 { color: var(--slot-p2); border-color: var(--slot-p2); }
+.slot-p3 { color: var(--slot-p3); border-color: var(--slot-p3); }
+.slot-p4 { color: var(--slot-p4); border-color: var(--slot-p4); }
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--reggae-green);
+  box-shadow: 0 0 8px var(--reggae-green);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px var(--reggae-green-bright); }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}

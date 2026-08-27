@@ -1,0 +1,196 @@
+import React, { useState, useEffect } from 'react';
+import { MainView } from './types';
+import { useAuth } from './hooks/useAuth';
+import { useSettings } from './hooks/useSettings';
+import { useWebRTC } from './hooks/useWebRTC';
+import { Sidebar } from './components/Sidebar';
+import { ComputersView } from './components/ComputersView';
+import { ArcadeView } from './components/ArcadeView';
+import { FriendsView } from './components/FriendsView';
+import { SettingsView } from './components/SettingsView';
+import { DiagnosticsView } from './components/DiagnosticsView';
+import { LandingView } from './components/LandingView';
+import { HostView } from './components/HostView';
+import { ClientView } from './components/ClientView';
+import { AuthModal } from './components/AuthModal';
+
+export const App: React.FC = () => {
+  const [currentView, setCurrentView] = useState<MainView>('computers');
+
+  const {
+    profile,
+    updateProfile,
+    loginWithGoogleMockOrGIS,
+    logout,
+    isAuthModalOpen,
+    setIsAuthModalOpen
+  } = useAuth();
+
+  const {
+    settings,
+    updateClientSetting,
+    updateHostSetting,
+    updateGamepadSetting,
+    updateNetworkSetting,
+    resetDefaults
+  } = useSettings();
+
+  const {
+    wsConnected,
+    currentPeerId,
+    roomState,
+    isHost,
+    assignedSlot,
+    remoteStream,
+    localStream,
+    latencyMs,
+    errorMsg,
+    chatMessages,
+    reactions,
+    lanIps,
+    startScreenCapture,
+    createRoom,
+    joinRoom,
+    approvePeer,
+    claimSlot,
+    updatePermissions,
+    kickPeer,
+    sendChat,
+    sendReaction,
+    sendInputPacket
+  } = useWebRTC();
+
+  // Check URL parameters on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinParam = params.get('join');
+    if (joinParam) {
+      setCurrentView('computers');
+    }
+  }, []);
+
+  // When room becomes active, transition smoothly
+  const handleStartHostingSession = () => {
+    createRoom(profile.name, {
+      maxBitrateMbps: settings.host.maxBitrateMbps,
+      targetFps: settings.host.fps,
+      resolution: settings.host.resolution,
+      requireApproval: settings.host.requireApproval,
+      allowMouseKeyboard: settings.host.allowMouseKeyboard
+    });
+  };
+
+  const handleJoinSpecificRoom = (code: string) => {
+    joinRoom(code, profile.name);
+  };
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-deep)' }}>
+      {/* Parsec Left Sidebar */}
+      <Sidebar
+        currentView={currentView}
+        onSelectView={setCurrentView}
+        profile={profile}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        wsConnected={wsConnected}
+        isHost={isHost && Boolean(roomState)}
+        latencyMs={latencyMs}
+      />
+
+      {/* Main View Area */}
+      <main style={{ flex: 1, padding: '32px 36px', overflowY: 'auto', maxHeight: '100vh', position: 'relative' }}>
+        {/* If Host stream is active and in computers view, show active Host Control Center */}
+        {roomState && isHost && currentView === 'computers' ? (
+          <HostView
+            roomState={roomState}
+            isHost={isHost}
+            localStream={localStream}
+            lanIps={lanIps}
+            chatMessages={chatMessages}
+            onCreateRoom={handleStartHostingSession}
+            onStartCapture={startScreenCapture}
+            onApprovePeer={approvePeer}
+            onUpdatePermissions={updatePermissions}
+            onKickPeer={kickPeer}
+            onSendChat={sendChat}
+            wsConnected={wsConnected}
+            errorMsg={errorMsg}
+          />
+        ) : roomState && !isHost ? (
+          /* If connected as a Client/Player, show Stream Player */
+          <ClientView
+            roomState={roomState}
+            remoteStream={remoteStream}
+            assignedSlot={assignedSlot}
+            chatMessages={chatMessages}
+            reactions={reactions}
+            onJoinRoom={handleJoinSpecificRoom}
+            onClaimSlot={claimSlot}
+            onSendInput={sendInputPacket}
+            onSendChat={sendChat}
+            onSendReaction={sendReaction}
+            wsConnected={wsConnected}
+            errorMsg={errorMsg}
+          />
+        ) : (
+          /* Default Navigation Views */
+          <>
+            {currentView === 'computers' && (
+              <ComputersView
+                roomState={roomState}
+                isHost={isHost}
+                onStartHosting={handleStartHostingSession}
+                onJoinRoom={handleJoinSpecificRoom}
+                onOpenSettings={() => setCurrentView('settings')}
+              />
+            )}
+
+            {currentView === 'arcade' && (
+              <ArcadeView
+                onJoinRoom={handleJoinSpecificRoom}
+                onHostArcade={handleStartHostingSession}
+              />
+            )}
+
+            {currentView === 'friends' && (
+              <FriendsView
+                onJoinRoom={handleJoinSpecificRoom}
+                onInviteFriend={(name) => sendChat(`Hey ${name}, join my Parsage session!`)}
+              />
+            )}
+
+            {currentView === 'settings' && (
+              <SettingsView
+                settings={settings}
+                profile={profile}
+                onUpdateClient={updateClientSetting}
+                onUpdateHost={updateHostSetting}
+                onUpdateGamepad={updateGamepadSetting}
+                onUpdateNetwork={updateNetworkSetting}
+                onResetDefaults={resetDefaults}
+                onUpdateProfile={updateProfile}
+                onOpenGoogleAuth={loginWithGoogleMockOrGIS}
+                onLogout={logout}
+              />
+            )}
+
+            {currentView === 'diagnostics' && <DiagnosticsView />}
+
+            {currentView === 'landing' && (
+              <LandingView onLaunchApp={() => setCurrentView('computers')} />
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Google Auth & Profile Customizer Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        profile={profile}
+        onGoogleLogin={loginWithGoogleMockOrGIS}
+        onUpdateProfile={updateProfile}
+      />
+    </div>
+  );
+};

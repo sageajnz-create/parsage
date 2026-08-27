@@ -1,0 +1,13 @@
+[Unit]
+Description=Parsage - Low Latency Linux Game & Desktop Streaming Host
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/parsage/bin/parsage host
+Restart=on-failure
+RestartSec=3
+Environment=PORT=7777
+
+[Install]
+WantedBy=default.target

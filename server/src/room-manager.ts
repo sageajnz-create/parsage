@@ -1,0 +1,366 @@
+import { WebSocket } from 'ws';
+import { PeerInfo, RoomState, ParsageMessage, PeerRole, ChatMessage, EmojiReaction } from './types.js';
+
+export interface ConnectedClient {
+  id: string;
+  name: string;
+  ws: WebSocket;
+  roomCode: string | null;
+  role: PeerRole;
+  slot: number | null;
+  approved: boolean;
+  permissions: {
+    gamepad: boolean;
+    mouse: boolean;
+    keyboard: boolean;
+    audio: boolean;
+  };
+  joinedAt: number;
+}
+
+const REGGAE_WORDS = [
+  'R4STA', 'ZION', 'ROOTS', 'IRIE', 'SAGE', 'CHEEZ', 'DUB', 'VIBE',
+  'LION', 'JAM', 'GROOVE', 'SOLAR', 'CHILL', 'BEAT', 'SKANK', 'MELODY'
+];
+
+export class RoomManager {
+  private rooms: Map<string, RoomState> = new Map();
+  private clients: Map<string, ConnectedClient> = new Map();
+
+  public generateRoomCode(): string {
+    const word = REGGAE_WORDS[Math.floor(Math.random() * REGGAE_WORDS.length)];
+    const num = Math.floor(100 + Math.random() * 900);
+    const code = `PARSAGE-${word}-${num}`;
+    if (this.rooms.has(code)) {
+      return this.generateRoomCode();
+    }
+    return code;
+  }
+
+  public registerClient(id: string, ws: WebSocket, name: string = 'Anonymous'): ConnectedClient {
+    const client: ConnectedClient = {
+      id,
+      name,
+      ws,
+      roomCode: null,
+      role: 'client',
+      slot: null,
+      approved: true,
+      permissions: {
+        gamepad: true,
+        mouse: false,
+        keyboard: false,
+        audio: true
+      },
+      joinedAt: Date.now()
+    };
+    this.clients.set(id, client);
+    return client;
+  }
+
+  public getClient(id: string): ConnectedClient | undefined {
+    return this.clients.get(id);
+  }
+
+  public removeClient(id: string): { roomCode: string | null; wasHost: boolean } {
+    const client = this.clients.get(id);
+    if (!client) return { roomCode: null, wasHost: false };
+
+    const roomCode = client.roomCode;
+    let wasHost = false;
+
+    if (roomCode && this.rooms.has(roomCode)) {
+      const room = this.rooms.get(roomCode)!;
+      if (room.hostId === id) {
+        wasHost = true;
+        this.broadcastToRoom(roomCode, {
+          type: 'error',
+          message: 'Host has ended the streaming session.'
+        }, id);
+        this.rooms.delete(roomCode);
+      } else {
+        if (client.slot !== null && room.slots[client.slot] === id) {
+          room.slots[client.slot] = null;
+        }
+        room.peers = room.peers.filter(p => p.id !== id);
+        this.broadcastToRoom(roomCode, { type: 'peer-left', peerId: id });
+        this.broadcastRoomState(roomCode);
+      }
+    }
+
+    this.clients.delete(id);
+    return { roomCode, wasHost };
+  }
+
+  public createRoom(
+    hostId: string,
+    hostName: string,
+    settings?: Partial<RoomState['settings']>
+  ): { roomCode: string; state: RoomState } {
+    const client = this.clients.get(hostId);
+    if (!client) throw new Error('Host client not registered');
+
+    const roomCode = this.generateRoomCode();
+    client.roomCode = roomCode;
+    client.role = 'host';
+    client.name = hostName;
+    client.approved = true;
+    client.permissions = { gamepad: true, mouse: true, keyboard: true, audio: true };
+
+    const state: RoomState = {
+      roomCode,
+      hostId,
+      hostName,
+      peers: [],
+      slots: [null, null, null, null],
+      createdAt: Date.now(),
+      settings: {
+        maxBitrateMbps: settings?.maxBitrateMbps ?? 20,
+        targetFps: settings?.targetFps ?? 60,
+        resolution: settings?.resolution ?? '1080p',
+        requireApproval: settings?.requireApproval ?? false,
+        allowMouseKeyboard: settings?.allowMouseKeyboard ?? true
+      }
+    };
+
+    this.rooms.set(roomCode, state);
+    return { roomCode, state };
+  }
+
+  public joinRoom(
+    peerId: string,
+    roomCode: string,
+    peerName: string,
+    role: PeerRole = 'client'
+  ): { success: boolean; state?: RoomState; error?: string } {
+    const client = this.clients.get(peerId);
+    if (!client) return { success: false, error: 'Client not found' };
+
+    const room = this.rooms.get(roomCode.trim().toUpperCase());
+    if (!room) return { success: false, error: `Room "${roomCode}" does not exist or has expired.` };
+
+    client.roomCode = room.roomCode;
+    client.name = peerName;
+    client.role = role;
+    client.approved = !room.settings.requireApproval;
+
+    let assignedSlot: number | null = null;
+    if (role === 'client' && client.approved) {
+      const freeSlotIndex = room.slots.findIndex(s => s === null);
+      if (freeSlotIndex !== -1) {
+        room.slots[freeSlotIndex] = peerId;
+        assignedSlot = freeSlotIndex;
+      }
+    }
+    client.slot = assignedSlot;
+
+    const peerInfo: PeerInfo = {
+      id: client.id,
+      name: client.name,
+      role: client.role,
+      slot: client.slot,
+      approved: client.approved,
+      permissions: client.permissions,
+      joinedAt: client.joinedAt
+    };
+
+    room.peers = room.peers.filter(p => p.id !== peerId);
+    room.peers.push(peerInfo);
+
+    this.broadcastToRoom(room.roomCode, { type: 'peer-joined', peer: peerInfo }, peerId);
+    this.broadcastRoomState(room.roomCode);
+
+    return { success: true, state: room };
+  }
+
+  public approvePeer(hostId: string, targetPeerId: string, slot?: number | null): boolean {
+    const host = this.clients.get(hostId);
+    if (!host || !host.roomCode) return false;
+
+    const room = this.rooms.get(host.roomCode);
+    if (!room || room.hostId !== hostId) return false;
+
+    const target = this.clients.get(targetPeerId);
+    if (!target) return false;
+
+    target.approved = true;
+
+    if (slot !== undefined && slot !== null && slot >= 0 && slot <= 3) {
+      if (room.slots[slot] === null) {
+        room.slots[slot] = targetPeerId;
+        target.slot = slot;
+      }
+    } else if (target.slot === null) {
+      const freeSlot = room.slots.findIndex(s => s === null);
+      if (freeSlot !== -1) {
+        room.slots[freeSlot] = targetPeerId;
+        target.slot = freeSlot;
+      }
+    }
+
+    const peer = room.peers.find(p => p.id === targetPeerId);
+    if (peer) {
+      peer.approved = true;
+      peer.slot = target.slot;
+    }
+
+    this.broadcastRoomState(room.roomCode);
+    return true;
+  }
+
+  public claimSlot(peerId: string, slot: number): boolean {
+    const client = this.clients.get(peerId);
+    if (!client || !client.roomCode || !client.approved || slot < 0 || slot > 3) return false;
+
+    const room = this.rooms.get(client.roomCode);
+    if (!room) return false;
+
+    if (room.slots[slot] !== null && room.slots[slot] !== peerId) {
+      return false;
+    }
+
+    if (client.slot !== null && client.slot !== slot) {
+      room.slots[client.slot] = null;
+    }
+
+    room.slots[slot] = peerId;
+    client.slot = slot;
+
+    const peer = room.peers.find(p => p.id === peerId);
+    if (peer) peer.slot = slot;
+
+    this.broadcastRoomState(room.roomCode);
+    return true;
+  }
+
+  public releaseSlot(peerId: string, slot: number): boolean {
+    const client = this.clients.get(peerId);
+    if (!client || !client.roomCode) return false;
+
+    const room = this.rooms.get(client.roomCode);
+    if (!room) return false;
+
+    if (room.slots[slot] === peerId) {
+      room.slots[slot] = null;
+      client.slot = null;
+      const peer = room.peers.find(p => p.id === peerId);
+      if (peer) peer.slot = null;
+      this.broadcastRoomState(room.roomCode);
+      return true;
+    }
+    return false;
+  }
+
+  public updatePermissions(
+    hostId: string,
+    targetPeerId: string,
+    permissions: PeerInfo['permissions']
+  ): boolean {
+    const host = this.clients.get(hostId);
+    if (!host || !host.roomCode) return false;
+
+    const room = this.rooms.get(host.roomCode);
+    if (!room || room.hostId !== hostId) return false;
+
+    const target = this.clients.get(targetPeerId);
+    if (!target) return false;
+
+    target.permissions = { ...permissions };
+    const peer = room.peers.find(p => p.id === targetPeerId);
+    if (peer) peer.permissions = { ...permissions };
+
+    this.broadcastRoomState(room.roomCode);
+    return true;
+  }
+
+  public kickPeer(hostId: string, targetPeerId: string): boolean {
+    const host = this.clients.get(hostId);
+    if (!host || !host.roomCode) return false;
+
+    const room = this.rooms.get(host.roomCode);
+    if (!room || room.hostId !== hostId) return false;
+
+    const target = this.clients.get(targetPeerId);
+    if (target) {
+      this.sendToPeer(targetPeerId, { type: 'error', message: 'You have been disconnected by the host.' });
+      target.ws.close(1000, 'Kicked by host');
+      this.removeClient(targetPeerId);
+      return true;
+    }
+    return false;
+  }
+
+  public broadcastChat(peerId: string, text: string): void {
+    const client = this.clients.get(peerId);
+    if (!client || !client.roomCode) return;
+
+    const chatMsg: ChatMessage = {
+      id: `chat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      senderId: peerId,
+      senderName: client.name,
+      slot: client.slot,
+      text,
+      timestamp: Date.now()
+    };
+
+    this.broadcastToRoom(client.roomCode, { type: 'new-chat', chat: chatMsg });
+  }
+
+  public broadcastReaction(peerId: string, emoji: string): void {
+    const client = this.clients.get(peerId);
+    if (!client || !client.roomCode) return;
+
+    const reaction: EmojiReaction = {
+      id: `rx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      senderId: peerId,
+      senderName: client.name,
+      emoji,
+      timestamp: Date.now()
+    };
+
+    this.broadcastToRoom(client.roomCode, { type: 'new-reaction', reaction });
+  }
+
+  public getRoom(roomCode: string): RoomState | undefined {
+    return this.rooms.get(roomCode.trim().toUpperCase());
+  }
+
+  public broadcastToRoom(roomCode: string, message: ParsageMessage, excludePeerId?: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    const raw = JSON.stringify(message);
+
+    if (room.hostId && room.hostId !== excludePeerId) {
+      const hostClient = this.clients.get(room.hostId);
+      if (hostClient && hostClient.ws.readyState === WebSocket.OPEN) {
+        hostClient.ws.send(raw);
+      }
+    }
+
+    for (const peer of room.peers) {
+      if (peer.id !== excludePeerId) {
+        const client = this.clients.get(peer.id);
+        if (client && client.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(raw);
+        }
+      }
+    }
+  }
+
+  public broadcastRoomState(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (room) {
+      this.broadcastToRoom(roomCode, { type: 'room-state', state: room });
+    }
+  }
+
+  public sendToPeer(peerId: string, message: ParsageMessage): boolean {
+    const client = this.clients.get(peerId);
+    if (client && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(JSON.stringify(message));
+      return true;
+    }
+    return false;
+  }
+}

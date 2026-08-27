@@ -1,0 +1,2 @@
+# 🌿 PARSAGE Linux uinput permissions for non-root low-latency gamepads
+KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"

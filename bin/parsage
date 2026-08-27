@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# 🌿 PARSAGE Unified CLI Launcher
+# Created with ❤️ by Sage & Antigravity
+
+set -e
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )/.." >/dev/null 2>&1 && pwd )"
+PORT="${PORT:-7777}"
+
+RED='\033[0;31m'
+GOLD='\033[0;33m'
+GREEN='\033[0;32m'
+TEAL='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+print_banner() {
+    echo -e "${GREEN}============================================================${NC}"
+    echo -e "${BOLD}${GREEN}  🌿 PARSAGE - Low Latency Linux Game & Desktop Streaming${NC}"
+    echo -e "${GOLD}  \"One love, low latency, no limits.\"${NC}"
+    echo -e "${RED}  Created with ❤️ by Sage & Antigravity${NC}"
+    echo -e "${GREEN}============================================================${NC}"
+}
+
+cmd_status() {
+    print_banner
+    python3 "$SCRIPT_DIR/host/pipewire_capture.py"
+}
+
+cmd_host() {
+    print_banner
+    echo -e "\n${BOLD}${GOLD}[1/2] Launching Virtual Input Subsystem (/dev/uinput)...${NC}"
+    python3 "$SCRIPT_DIR/host/uinput_service.py" &
+    UINPUT_PID=$!
+
+    echo -e "\n${BOLD}${GREEN}[2/2] Starting Parsage Signaling & Web Hub on port ${PORT}...${NC}"
+    (cd "$SCRIPT_DIR/server" && node dist/index.js) &
+    SERVER_PID=$!
+
+    trap "echo -e '\n${RED}[Parsage] Stopping services...${NC}'; kill $UINPUT_PID $SERVER_PID 2>/dev/null || true; exit 0" INT TERM
+
+    sleep 1
+    echo -e "\n${BOLD}${TEAL}🚀 Parsage is running! Open your browser:${NC}"
+    echo -e "   👉 ${BOLD}${GOLD}http://localhost:${PORT}${NC}\n"
+    echo -e "Press ${BOLD}Ctrl+C${NC} to stop hosting."
+
+    wait $SERVER_PID
+}
+
+cmd_join() {
+    ROOM_CODE="$1"
+    print_banner
+    if [ -z "$ROOM_CODE" ]; then
+        echo -e "${RED}Error: Please provide a room code.${NC}"
+        echo -e "Usage: parsage join PARSAGE-R4STA-777"
+        exit 1
+    fi
+    echo -e "${GREEN}Opening room ${BOLD}${ROOM_CODE}${NC} in browser...${NC}"
+    xdg-open "http://localhost:${PORT}/?join=${ROOM_CODE}" 2>/dev/null || \
+    sensible-browser "http://localhost:${PORT}/?join=${ROOM_CODE}" 2>/dev/null || \
+    echo -e "Please navigate to: ${GOLD}http://localhost:${PORT}/?join=${ROOM_CODE}${NC}"
+}
+
+cmd_uinput_setup() {
+    print_banner
+    echo -e "${GOLD}Setting up /dev/uinput permissions for non-root gaming...${NC}"
+    RULES_FILE="/etc/udev/rules.d/99-parsage-uinput.rules"
+    if [ -w "/etc/udev/rules.d" ]; then
+        echo 'KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"' > "$RULES_FILE"
+        udevadm control --reload-rules && udevadm trigger
+        echo -e "${GREEN}✅ udev rules installed successfully at ${RULES_FILE}!${NC}"
+    else
+        echo -e "${RED}Root privileges needed to write to /etc/udev/rules.d.${NC}"
+        echo -e "Run: ${BOLD}sudo cp ${SCRIPT_DIR}/packaging/99-parsage-uinput.rules /etc/udev/rules.d/${NC}"
+        echo -e "     ${BOLD}sudo udevadm control --reload-rules && sudo udevadm trigger${NC}"
+    fi
+}
+
+cmd_help() {
+    print_banner
+    echo -e "Usage: parsage <command> [arguments]\n"
+    echo -e "Commands:"
+    echo -e "  ${BOLD}${GREEN}host${NC}           Start host stream, signaling server, and 4 virtual Xbox 360 controllers"
+    echo -e "  ${BOLD}${GOLD}join <CODE>${NC}    Join a live Parsage session with your room code"
+    echo -e "  ${BOLD}${TEAL}status${NC}         Display system info, AMD VA-API hardware encoder, PipeWire, and uinput state"
+    echo -e "  ${BOLD}${RED}uinput-setup${NC}   Configure udev rules so gamepads work seamlessly without root"
+    echo -e "  ${BOLD}help${NC}           Show this help message\n"
+}
+
+case "${1:-host}" in
+    host)
+        cmd_host
+        ;;
+    join)
+        cmd_join "$2"
+        ;;
+    status)
+        cmd_status
+        ;;
+    uinput-setup)
+        cmd_uinput_setup
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        cmd_help
+        ;;
+esac
