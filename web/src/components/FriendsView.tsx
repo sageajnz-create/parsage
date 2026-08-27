@@ -1,55 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Friend } from '../types';
-import { Users, UserPlus, Play, Share2, MessageSquare, Check, Clock } from 'lucide-react';
+import { Users, UserPlus, Play, Share2, Trash2, UserCheck } from 'lucide-react';
 
 interface FriendsViewProps {
   onJoinRoom: (roomCode: string) => void;
   onInviteFriend: (friendName: string) => void;
 }
 
-const DEFAULT_FRIENDS: Friend[] = [
-  {
-    id: 'f-1',
-    name: 'Alex',
-    tag: '0420',
-    avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alex&backgroundColor=1b1a17',
-    status: 'hosting',
-    currentGame: 'Tekken 8',
-    roomCode: 'PARSAGE-MINT-420'
-  },
-  {
-    id: 'f-2',
-    name: 'Marcus',
-    tag: '7777',
-    avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Marcus&backgroundColor=1b1a17',
-    status: 'in-game',
-    currentGame: 'Elden Ring Seamless Co-op'
-  },
-  {
-    id: 'f-3',
-    name: 'Sarah',
-    tag: '1337',
-    avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Sarah&backgroundColor=1b1a17',
-    status: 'online'
-  },
-  {
-    id: 'f-4',
-    name: 'David',
-    tag: '9999',
-    avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=David&backgroundColor=1b1a17',
-    status: 'offline'
-  }
-];
+const STORAGE_KEY = 'parsage_friends_list';
 
 export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFriend }) => {
-  const [friends, setFriends] = useState<Friend[]>(DEFAULT_FRIENDS);
+  const [friends, setFriends] = useState<Friend[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+
   const [friendTagInput, setFriendTagInput] = useState('');
   const [invited, setInvited] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(friends));
+    } catch (e) {}
+  }, [friends]);
 
   const handleAddFriend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!friendTagInput.trim()) return;
-    const parts = friendTagInput.split('#');
+    const parts = friendTagInput.trim().split('#');
     const name = parts[0] || 'Friend';
     const tag = parts[1] || Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -58,11 +39,15 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
       name,
       tag,
       avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=1b1a17`,
-      status: 'online'
+      status: 'offline'
     };
 
     setFriends(prev => [newFriend, ...prev]);
     setFriendTagInput('');
+  };
+
+  const handleRemoveFriend = (id: string) => {
+    setFriends(prev => prev.filter(f => f.id !== id));
   };
 
   const handleInvite = (friend: Friend) => {
@@ -110,9 +95,9 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
               fontSize: '0.9rem'
             }}
           />
-          <button type="submit" className="btn btn-primary">
+          <button type="submit" className="btn btn-primary" disabled={!friendTagInput.trim()}>
             <UserPlus size={16} />
-            <span>Add</span>
+            <span>Add Friend</span>
           </button>
         </form>
       </div>
@@ -123,78 +108,102 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
           ALL FRIENDS ({friends.length})
         </h3>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {friends.map((friend) => (
-            <div
-              key={friend.id}
-              style={{
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-muted)',
-                borderRadius: '10px',
-                padding: '14px 18px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '12px'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div style={{ position: 'relative' }}>
-                  <img
-                    src={friend.avatarUrl}
-                    alt={friend.name}
-                    style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-muted)', background: '#151412' }}
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    right: 0,
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    backgroundColor: getStatusColor(friend.status),
-                    border: '2px solid var(--bg-input)'
-                  }} />
+        {friends.length === 0 ? (
+          <div style={{
+            background: 'var(--bg-input)',
+            borderRadius: '10px',
+            padding: '48px 24px',
+            textAlign: 'center',
+            border: '1px dashed var(--border-muted)'
+          }}>
+            <Users size={48} color="var(--border-muted)" style={{ margin: '0 auto 16px auto' }} />
+            <h4 style={{ fontSize: '1.15rem', color: 'var(--fg-bright)', marginBottom: '6px' }}>No Friends Added Yet</h4>
+            <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', maxWidth: '420px', margin: '0 auto' }}>
+              Type your friend's name and tag above (e.g. <code>Bro#0420</code>) and hit <strong>Add Friend</strong> to invite them to game sessions!
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {friends.map((friend) => (
+              <div
+                key={friend.id}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-muted)',
+                  borderRadius: '10px',
+                  padding: '14px 18px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{ position: 'relative' }}>
+                    <img
+                      src={friend.avatarUrl}
+                      alt={friend.name}
+                      style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-muted)', background: '#151412' }}
+                    />
+                    <div style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      right: 0,
+                      width: '12px',
+                      height: '12px',
+                      borderRadius: '50%',
+                      backgroundColor: getStatusColor(friend.status),
+                      border: '2px solid var(--bg-input)'
+                    }} />
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: 'var(--fg-bright)' }}>
+                      {friend.name} <span style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', fontWeight: 'normal' }}>#{friend.tag}</span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: getStatusColor(friend.status), fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {friend.status === 'hosting' ? `⚡ Hosting ${friend.currentGame || 'Game'}` :
+                       friend.status === 'in-game' ? `🎮 Playing ${friend.currentGame || 'Game'}` :
+                       friend.status === 'online' ? '● Online' : '○ Offline'}
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: 'var(--fg-bright)' }}>
-                    {friend.name} <span style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', fontWeight: 'normal' }}>#{friend.tag}</span>
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: getStatusColor(friend.status), fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {friend.status === 'hosting' ? `⚡ Hosting ${friend.currentGame || 'Game'}` :
-                     friend.status === 'in-game' ? `🎮 Playing ${friend.currentGame || 'Game'}` :
-                     friend.status === 'online' ? '● Online' : '○ Offline'}
-                  </div>
-                </div>
-              </div>
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {friend.roomCode && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => onJoinRoom(friend.roomCode!)}
+                      style={{ padding: '7px 14px', fontSize: '0.82rem' }}
+                    >
+                      <Play size={14} />
+                      <span>Join Game</span>
+                    </button>
+                  )}
 
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {friend.roomCode && (
                   <button
-                    className="btn btn-primary"
-                    onClick={() => onJoinRoom(friend.roomCode!)}
+                    className="btn btn-secondary"
+                    onClick={() => handleInvite(friend)}
                     style={{ padding: '7px 14px', fontSize: '0.82rem' }}
                   >
-                    <Play size={14} />
-                    <span>Join Game</span>
+                    {invited[friend.id] ? <UserCheck size={14} color="var(--reggae-green-bright)" /> : <Share2 size={14} />}
+                    <span>{invited[friend.id] ? 'Invite Sent!' : 'Invite to Play'}</span>
                   </button>
-                )}
 
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => handleInvite(friend)}
-                  style={{ padding: '7px 14px', fontSize: '0.82rem' }}
-                >
-                  {invited[friend.id] ? <Check size={14} color="var(--reggae-green-bright)" /> : <Share2 size={14} />}
-                  <span>{invited[friend.id] ? 'Invite Sent!' : 'Invite to Play'}</span>
-                </button>
+                  <button
+                    onClick={() => handleRemoveFriend(friend.id)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', padding: '6px' }}
+                    title="Remove Friend"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

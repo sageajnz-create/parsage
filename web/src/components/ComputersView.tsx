@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RoomState, SavedComputer } from '../types';
 import {
   Monitor, Radio, Play, StopCircle, Copy, Check, Users,
-  Zap, Share2, Plus, ExternalLink, ArrowRight, Shield
+  Zap, Share2, Plus, ExternalLink, ArrowRight, Shield, Trash2
 } from 'lucide-react';
 
 interface ComputersViewProps {
@@ -14,28 +14,7 @@ interface ComputersViewProps {
   onOpenSettings: () => void;
 }
 
-const DEFAULT_SAVED_COMPUTERS: SavedComputer[] = [
-  {
-    id: 'pc-1',
-    name: "Bro's Linux Mint PC",
-    ownerName: 'Alex',
-    roomCode: 'PARSAGE-MINT-420',
-    status: 'online',
-    gpu: 'NVIDIA RTX 3060 (NVENC)',
-    pingMs: 14,
-    lastSeen: Date.now() - 1000 * 60 * 5
-  },
-  {
-    id: 'pc-2',
-    name: 'Marcus Steam Deck (OLED)',
-    ownerName: 'Marcus',
-    roomCode: 'PARSAGE-DECK-777',
-    status: 'hosting',
-    gpu: 'AMD Van Gogh RDNA2',
-    pingMs: 22,
-    lastSeen: Date.now() - 1000 * 60 * 1
-  }
-];
+const STORAGE_KEY = 'parsage_saved_computers';
 
 export const ComputersView: React.FC<ComputersViewProps> = ({
   roomState,
@@ -47,12 +26,28 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
 }) => {
   const [joinCode, setJoinCode] = useState('');
   const [copied, setCopied] = useState(false);
-  const [savedPcs, setSavedPcs] = useState<SavedComputer[]>(DEFAULT_SAVED_COMPUTERS);
+  const [savedPcs, setSavedPcs] = useState<SavedComputer[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedPcs));
+    } catch (e) {}
+  }, [savedPcs]);
 
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) return;
     onJoinRoom(joinCode.trim().toUpperCase());
+  };
+
+  const handleRemoveComputer = (id: string) => {
+    setSavedPcs(prev => prev.filter(pc => pc.id !== id));
   };
 
   const copyRoomLink = () => {
@@ -196,43 +191,63 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
           </h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-          {savedPcs.map((pc) => (
-            <div key={pc.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '16px' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--bg-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
-                      💻
+        {savedPcs.length === 0 ? (
+          <div className="card" style={{
+            background: 'var(--bg-input)',
+            borderRadius: '10px',
+            padding: '36px 24px',
+            textAlign: 'center',
+            border: '1px dashed var(--border-muted)'
+          }}>
+            <Monitor size={42} color="var(--border-muted)" style={{ margin: '0 auto 12px auto' }} />
+            <h4 style={{ fontSize: '1.05rem', color: 'var(--fg-bright)', marginBottom: '4px' }}>No Shared Computers</h4>
+            <p style={{ color: 'var(--fg-muted)', fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto' }}>
+              When a friend shares a session with you, or when you join via a room code, you can save their PC here for instant 1-click connecting.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            {savedPcs.map((pc) => (
+              <div key={pc.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--bg-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                        💻
+                      </div>
+                      <div>
+                        <h4 style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--fg-bright)' }}>{pc.name}</h4>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>Owner: {pc.ownerName}</span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--fg-bright)' }}>{pc.name}</h4>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>Owner: {pc.ownerName}</span>
-                    </div>
+
+                    <button
+                      onClick={() => handleRemoveComputer(pc.id)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer' }}
+                      title="Remove Saved Computer"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
 
-                  <span className={`badge ${pc.status === 'hosting' ? 'badge-green' : 'badge-reggae'}`}>
-                    {pc.status === 'hosting' ? '● Hosting Party' : '● Online'}
-                  </span>
+                  <div style={{ background: 'var(--bg-input)', padding: '10px 12px', borderRadius: '6px', marginTop: '12px', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--fg-muted)' }}>{pc.gpu}</span>
+                    <span style={{ color: 'var(--reggae-green-bright)', fontWeight: 'bold' }}>{pc.pingMs} ms</span>
+                  </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-input)', padding: '10px 12px', borderRadius: '6px', marginTop: '12px', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--fg-muted)' }}>{pc.gpu}</span>
-                  <span style={{ color: 'var(--reggae-green-bright)', fontWeight: 'bold' }}>{pc.pingMs} ms</span>
-                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => onJoinRoom(pc.roomCode)}
+                  style={{ width: '100%', padding: '9px' }}
+                >
+                  <Play size={16} />
+                  <span>Connect to {pc.ownerName}</span>
+                </button>
               </div>
-
-              <button
-                className="btn btn-primary"
-                onClick={() => onJoinRoom(pc.roomCode)}
-                style={{ width: '100%', padding: '9px' }}
-              >
-                <Play size={16} />
-                <span>Connect to {pc.ownerName}</span>
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
