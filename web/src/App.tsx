@@ -9,7 +9,6 @@ import { ArcadeView } from './components/ArcadeView';
 import { FriendsView } from './components/FriendsView';
 import { SettingsView } from './components/SettingsView';
 import { DiagnosticsView } from './components/DiagnosticsView';
-import { LandingView } from './components/LandingView';
 import { HostView } from './components/HostView';
 import { ClientView } from './components/ClientView';
 import { AuthModal } from './components/AuthModal';
@@ -60,7 +59,6 @@ export const App: React.FC = () => {
     sendInputPacket
   } = useWebRTC();
 
-  // Check URL parameters on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinParam = params.get('join');
@@ -69,7 +67,6 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // When room becomes active, transition smoothly
   const handleStartHostingSession = () => {
     createRoom(profile.name, {
       maxBitrateMbps: settings.host.maxBitrateMbps,
@@ -97,9 +94,9 @@ export const App: React.FC = () => {
         latencyMs={latencyMs}
       />
 
-      {/* Main View Area */}
+      {/* Main App Workspace */}
       <main style={{ flex: 1, padding: '32px 36px', overflowY: 'auto', maxHeight: '100vh', position: 'relative' }}>
-        {/* If Host stream is active and in computers view, show active Host Control Center */}
+        {/* If Host is broadcasting in computers view, show Host Control Center */}
         {roomState && isHost && currentView === 'computers' ? (
           <HostView
             roomState={roomState}
@@ -117,7 +114,7 @@ export const App: React.FC = () => {
             errorMsg={errorMsg}
           />
         ) : roomState && !isHost ? (
-          /* If connected as a Client/Player, show Stream Player */
+          /* If joined as Client, show Streaming Viewport */
           <ClientView
             roomState={roomState}
             remoteStream={remoteStream}
@@ -133,7 +130,7 @@ export const App: React.FC = () => {
             errorMsg={errorMsg}
           />
         ) : (
-          /* Default Navigation Views */
+          /* Navigation Tabs */
           <>
             {currentView === 'computers' && (
               <ComputersView
@@ -175,15 +172,11 @@ export const App: React.FC = () => {
             )}
 
             {currentView === 'diagnostics' && <DiagnosticsView />}
-
-            {currentView === 'landing' && (
-              <LandingView onLaunchApp={() => setCurrentView('computers')} />
-            )}
           </>
         )}
       </main>
 
-      {/* Google Auth & Profile Customizer Modal */}
+      {/* Profile & Google Sign-In Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

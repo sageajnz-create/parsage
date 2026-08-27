@@ -1,4 +1,4 @@
-name: 🌿 Deploy Parsage Website & Web App to GitHub Pages
+name: 🌿 Deploy Parsage Download Website to GitHub Pages
 
 on:
   push:
@@ -24,37 +24,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: '**/package-lock.json'
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Dependencies & Build Web Client
-        run: |
-          cd web && npm ci && npm run build
-          cd ../server && npm ci && npm run build
-
-      - name: Build Standalone Debian (.deb) Package
-        run: |
-          python3 packaging/build_deb.py
-          mkdir -p web/dist/dist_pkg
-          cp dist_pkg/*.deb web/dist/dist_pkg/
-          cp packaging/install.sh web/dist/install.sh
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'web/dist'
+          path: 'website'
 
       - name: Deploy to GitHub Pages
         id: deployment

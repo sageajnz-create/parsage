@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌿 Parsage - Low-Latency Linux Game & Desktop Streaming</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
+  <style>
+    :root {
+      --bg-deep: #1B1A17;
+      --bg-card: #272520;
+      --bg-card-hover: #343028;
+      --border-muted: #4A4536;
+      --fg-main: #F3E5AB;
+      --fg-bright: #FFF3C4;
+      --fg-muted: #A39B82;
+      --reggae-green: #1EB53A;
+      --reggae-green-bright: #3DDC5B;
+      --reggae-gold: #FFC72C;
+      --reggae-gold-bright: #FFD966;
+      --reggae-red: #E8112D;
+      --zion-teal: #4FBFA8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-deep);
+      color: var(--fg-main);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    
+    /* Header Navbar */
+    header {
+      background: rgba(27, 26, 23, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-muted);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 16px 0;
+    }
+    .nav-wrap { display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+    .brand h1 {
+      font-size: 1.6rem;
+      font-weight: 900;
+      background: linear-gradient(90deg, var(--reggae-red), var(--reggae-gold), var(--reggae-green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      background: rgba(255, 199, 44, 0.15);
+      color: var(--reggae-gold);
+      border: 1px solid var(--reggae-gold);
+    }
+    
+    /* Hero Section */
+    .hero {
+      padding: 90px 0 60px 0;
+      text-align: center;
+    }
+    .hero h2 {
+      font-size: 3.5rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--fg-muted);
+      max-width: 780px;
+      margin: 0 auto 36px auto;
+    }
+    .cta-group { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+    
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .btn-gold {
+      background: var(--reggae-gold);
+      color: #1B1A17;
+    }
+    .btn-gold:hover {
+      background: var(--reggae-gold-bright);
+      box-shadow: 0 0 20px rgba(255, 199, 44, 0.4);
+      transform: translateY(-2px);
+    }
+    .btn-green {
+      background: var(--reggae-green);
+      color: #FFFFFF;
+    }
+    .btn-green:hover {
+      background: var(--reggae-green-bright);
+      box-shadow: 0 0 20px rgba(30, 181, 58, 0.4);
+      transform: translateY(-2px);
+    }
+    .btn-outline {
+      background: var(--bg-card);
+      border: 1px solid var(--border-muted);
+      color: var(--fg-main);
+    }
+    .btn-outline:hover {
+      border-color: var(--reggae-gold);
+      color: var(--fg-bright);
+    }
+
+    /* Features Grid */
+    .features { padding: 60px 0; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-muted);
+      border-radius: 14px;
+      padding: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .card:hover { transform: translateY(-4px); border-color: var(--reggae-gold); }
+    .card-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      margin-bottom: 18px;
+    }
+    .card h3 { font-size: 1.3rem; color: var(--fg-bright); margin-bottom: 10px; }
+    .card p { font-size: 0.95rem; color: var(--fg-muted); line-height: 1.6; }
+
+    /* Comparison Table */
+    .comparison { padding: 60px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th, td { padding: 16px 20px; text-align: left; }
+    th { border-bottom: 2px solid var(--border-muted); color: var(--fg-muted); }
+    td { border-bottom: 1px solid var(--border-muted); }
+
+    /* One Line Terminal Code */
+    .cmd-box {
+      background: #151412;
+      border: 1px solid var(--border-muted);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-family: monospace;
+      color: var(--reggae-gold);
+      font-size: 0.95rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 24px;
+      overflow-x: auto;
+    }
+
+    footer {
+      border-top: 1px solid var(--border-muted);
+      background: var(--bg-card);
+      padding: 32px 0;
+      text-align: center;
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header Navbar -->
+  <header>
+    <div class="container nav-wrap">
+      <a href="#" class="brand">
+        <span style="font-size: 2rem;">🌿</span>
+        <div>
+          <h1>PARSAGE</h1>
+        </div>
+      </a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span class="badge">Created by Sage & Antigravity</span>
+        <a href="https://github.com/sageajnz-create/parsage" class="btn btn-outline" style="padding: 8px 16px; font-size: 0.85rem;" target="_blank">
+          GitHub
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge" style="margin-bottom: 20px;">
+        <span>Parsec Alternative • Linux Wayland & Mint Ready</span>
+      </div>
+      <h2>
+        Play Local Co-op with Friends.<br>
+        <span style="background: linear-gradient(90deg, var(--reggae-red), var(--reggae-gold), var(--reggae-green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+          Hosted Natively on Linux.
+        </span>
+      </h2>
+      <p>
+        The plug-and-play desktop and game streaming suite built for Omarchy, Wayland, and Linux Mint. Zero port forwarding, hardware VA-API/NVENC encoding, and virtual 4-player Xbox 360 controller emulation.
+      </p>
+
+      <div class="cta-group">
+        <a href="https://github.com/sageajnz-create/parsage/releases/download/v0.2.0/parsage_0.1.0_all.deb" class="btn btn-gold">
+          <span>📦 Download for Linux Mint / Ubuntu (.deb)</span>
+        </a>
+        <a href="https://github.com/sageajnz-create/parsage" class="btn btn-outline" target="_blank">
+          <span>⭐ View on GitHub</span>
+        </a>
+      </div>
+
+      <!-- 1-Command Universal Terminal Installer -->
+      <div style="max-width: 780px; margin: 36px auto 0 auto; text-align: left;">
+        <div style="font-size: 0.85rem; color: var(--fg-muted); margin-bottom: 6px;">
+          ⚡ Or install instantly on any Linux system (Mint, Ubuntu, Arch, Fedora) via terminal:
+        </div>
+        <div class="cmd-box">
+          <code>curl -fsSL https://raw.githubusercontent.com/sageajnz-create/parsage/master/packaging/install.sh | bash</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature Pillars -->
+  <section class="features">
+    <div class="container">
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon" style="background: rgba(30, 181, 58, 0.15); color: var(--reggae-green-bright); border: 1px solid var(--reggae-green);">
+            ⚡
+          </div>
+          <h3>Sub-4ms Hardware VA-API</h3>
+          <p>
+            Direct zero-copy PipeWire capture with AMD Radeon (Navi 23) and NVIDIA NVENC hardware acceleration for smooth 60, 120, and 144 FPS co-op gameplay.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon" style="background: rgba(255, 199, 44, 0.15); color: var(--reggae-gold); border: 1px solid var(--reggae-gold);">
+            🎮
+          </div>
+          <h3>4-Player Virtual Xbox Joysticks</h3>
+          <p>
+            Linux kernel <code>/dev/uinput</code> provisions 4 genuine Xbox 360 controllers with force feedback rumble. Smash, Castle Crashers, Overcooked, and Steam games work natively.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon" style="background: rgba(79, 191, 168, 0.15); color: var(--zion-teal); border: 1px solid var(--zion-teal);">
+            🌐
+          </div>
+          <h3>Zero Router Port-Forwarding</h3>
+          <p>
+            Share room codes with your friends. Direct WebRTC P2P STUN traversal automatically creates encrypted UDP tunnels without opening router ports.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Matrix -->
+  <section class="comparison">
+    <div class="container">
+      <div class="card" style="padding: 40px;">
+        <h3 style="text-align: center; font-size: 1.6rem; margin-bottom: 24px;">Parsage vs Traditional Streaming Apps on Linux</h3>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>FEATURE</th>
+                <th style="color: var(--reggae-gold);">🌿 PARSAGE</th>
+                <th>PARSEC (WINDOWS ONLY HOST)</th>
+                <th>SUNSHINE / MOONLIGHT</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Linux Wayland & Mint Hosting</strong></td>
+                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ Native (PipeWire)</td>
+                <td style="color: var(--reggae-red); font-weight: bold;">❌ Cannot Host on Linux</td>
+                <td>⚠️ Requires Manual Setup</td>
+              </tr>
+              <tr>
+                <td><strong>Zero Port Forwarding Needed</strong></td>
+                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ WebRTC STUN P2P</td>
+                <td>✅ Proprietary NAT</td>
+                <td style="color: var(--reggae-red); font-weight: bold;">❌ Manual Ports / UPnP</td>
+              </tr>
+              <tr>
+                <td><strong>Unified Host & Client in 1 App</strong></td>
+                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ 1-Click App</td>
+                <td>✅ 1-Click App</td>
+                <td style="color: var(--reggae-red); font-weight: bold;">❌ Separate Apps</td>
+              </tr>
+              <tr>
+                <td><strong>Multi-Gamepad Kernel Injection</strong></td>
+                <td style="color: var(--reggae-green-bright); font-weight: bold;">✅ 4x Xbox 360 (/dev/uinput)</td>
+                <td>⚠️ Windows ViGEm only</td>
+                <td>⚠️ Virtual Joysticks</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p style="font-size: 1rem; color: var(--fg-bright); margin-bottom: 6px;">
+        🌿 <strong>Parsage v0.2.0</strong> — <em>"One love, low latency, no limits."</em>
+      </p>
+      <p>Created with ❤️ by <strong>Sage & Antigravity</strong> • Open Source under MIT License</p>
+    </div>
+  </footer>
+
+</body>
+</html>

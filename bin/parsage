@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 🌿 PARSAGE Unified CLI Launcher
+# 🌿 PARSAGE Native Desktop Client & Host Engine
 # Created with ❤️ by Sage & Antigravity
 
 set -e
@@ -28,43 +28,50 @@ print_banner() {
     echo -e "${GREEN}============================================================${NC}"
 }
 
+ensure_service() {
+    if ! ss -tulpn 2>/dev/null | grep -q ":${PORT}\b"; then
+        echo -e "${GOLD}Starting Parsage background daemon...${NC}"
+        python3 "$SCRIPT_DIR/host/uinput_service.py" &
+        UINPUT_PID=$!
+        (cd "$SCRIPT_DIR/server" && node dist/index.js) &
+        SERVER_PID=$!
+        sleep 1.2
+    fi
+}
+
+open_app_window() {
+    local TARGET_URL="${1:-http://localhost:${PORT}}"
+    ensure_service
+
+    # Check for standalone Chromium/Chrome app window mode
+    if command -v chromium &>/dev/null; then
+        exec chromium --app="$TARGET_URL" --class=Parsage --name=Parsage --user-data-dir="$HOME/.config/parsage/app_profile" --window-size=1280,820
+    elif command -v google-chrome-stable &>/dev/null; then
+        exec google-chrome-stable --app="$TARGET_URL" --class=Parsage --name=Parsage --user-data-dir="$HOME/.config/parsage/app_profile" --window-size=1280,820
+    elif command -v brave-browser &>/dev/null; then
+        exec brave-browser --app="$TARGET_URL" --class=Parsage --name=Parsage --user-data-dir="$HOME/.config/parsage/app_profile" --window-size=1280,820
+    else
+        xdg-open "$TARGET_URL" 2>/dev/null || sensible-browser "$TARGET_URL" 2>/dev/null
+    fi
+}
+
 cmd_status() {
     print_banner
     python3 "$SCRIPT_DIR/host/pipewire_capture.py"
 }
 
 cmd_host() {
-    print_banner
-    echo -e "\n${BOLD}${GOLD}[1/2] Launching Virtual Input Subsystem (/dev/uinput)...${NC}"
-    python3 "$SCRIPT_DIR/host/uinput_service.py" &
-    UINPUT_PID=$!
-
-    echo -e "\n${BOLD}${GREEN}[2/2] Starting Parsage Signaling & Web Hub on port ${PORT}...${NC}"
-    (cd "$SCRIPT_DIR/server" && node dist/index.js) &
-    SERVER_PID=$!
-
-    trap "echo -e '\n${RED}[Parsage] Stopping services...${NC}'; kill $UINPUT_PID $SERVER_PID 2>/dev/null || true; exit 0" INT TERM
-
-    sleep 1
-    echo -e "\n${BOLD}${TEAL}🚀 Parsage is running! Open your browser:${NC}"
-    echo -e "   👉 ${BOLD}${GOLD}http://localhost:${PORT}${NC}\n"
-    echo -e "Press ${BOLD}Ctrl+C${NC} to stop hosting."
-
-    wait $SERVER_PID
+    open_app_window "http://localhost:${PORT}"
 }
 
 cmd_join() {
     ROOM_CODE="$1"
-    print_banner
     if [ -z "$ROOM_CODE" ]; then
         echo -e "${RED}Error: Please provide a room code.${NC}"
         echo -e "Usage: parsage join PARSAGE-R4STA-777"
         exit 1
     fi
-    echo -e "${GREEN}Opening room ${BOLD}${ROOM_CODE}${NC} in browser...${NC}"
-    xdg-open "http://localhost:${PORT}/?join=${ROOM_CODE}" 2>/dev/null || \
-    sensible-browser "http://localhost:${PORT}/?join=${ROOM_CODE}" 2>/dev/null || \
-    echo -e "Please navigate to: ${GOLD}http://localhost:${PORT}/?join=${ROOM_CODE}${NC}"
+    open_app_window "http://localhost:${PORT}/?join=${ROOM_CODE}"
 }
 
 cmd_uinput_setup() {
@@ -86,14 +93,18 @@ cmd_help() {
     print_banner
     echo -e "Usage: parsage <command> [arguments]\n"
     echo -e "Commands:"
-    echo -e "  ${BOLD}${GREEN}host${NC}           Start host stream, signaling server, and 4 virtual Xbox 360 controllers"
-    echo -e "  ${BOLD}${GOLD}join <CODE>${NC}    Join a live Parsage session with your room code"
-    echo -e "  ${BOLD}${TEAL}status${NC}         Display system info, AMD VA-API hardware encoder, PipeWire, and uinput state"
-    echo -e "  ${BOLD}${RED}uinput-setup${NC}   Configure udev rules so gamepads work seamlessly without root"
-    echo -e "  ${BOLD}help${NC}           Show this help message\n"
+    echo -e "  ${BOLD}${GREEN}parsage${NC}          Launch Parsage Standalone Desktop App"
+    echo -e "  ${BOLD}${GREEN}host${NC}             Start host stream and launch desktop app"
+    echo -e "  ${BOLD}${GOLD}join <CODE>${NC}      Join a live Parsage session in standalone window"
+    echo -e "  ${BOLD}${TEAL}status${NC}           Display system info, AMD VA-API encoder, PipeWire, and uinput state"
+    echo -e "  ${BOLD}${RED}uinput-setup${NC}     Configure udev rules so gamepads work seamlessly without root"
+    echo -e "  ${BOLD}help${NC}             Show this help message\n"
 }
 
-case "${1:-host}" in
+case "${1:-default}" in
+    default|"")
+        open_app_window "http://localhost:${PORT}"
+        ;;
     host)
         cmd_host
         ;;

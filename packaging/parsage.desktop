@@ -1,9 +1,11 @@
 [Desktop Entry]
 Name=Parsage
+GenericName=Game & Desktop Streamer
 Comment=Plug-and-play low-latency game & desktop streaming for Linux and friends
-Exec=/home/omarsage/Work/parsage/bin/parsage host
-Icon=input-gaming
-Terminal=true
+Exec=parsage
+Icon=parsage
+Terminal=false
 Type=Application
 Categories=Network;Game;AudioVideo;
 Keywords=parsec;stream;gaming;gamepad;remote;coop;
+StartupWMClass=Parsage

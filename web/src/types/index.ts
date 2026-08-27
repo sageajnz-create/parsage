@@ -1,5 +1,6 @@
+export type MainView = 'computers' | 'arcade' | 'friends' | 'settings' | 'diagnostics' | 'streaming';
+
 export type TabView = MainView;
-export type MainView = 'computers' | 'arcade' | 'friends' | 'settings' | 'diagnostics' | 'landing' | 'streaming';
 
 export type SettingsTab = 'client' | 'host' | 'gamepad' | 'network' | 'account';
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { MainView, UserProfile } from '../types';
 import {
-  Monitor, Gamepad2, Users, Settings, Activity, Globe,
+  Monitor, Gamepad2, Users, Settings, Activity,
   ShieldCheck, Wifi, LogIn, Sparkles
 } from 'lucide-react';
 
@@ -171,15 +171,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Activity size={18} />
             <span>Diagnostics</span>
-          </button>
-
-          <button
-            onClick={() => onSelectView('landing')}
-            className={`btn ${currentView === 'landing' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
-          >
-            <Globe size={18} />
-            <span>Website & Downloads</span>
           </button>
         </nav>
       </div>
