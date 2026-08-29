@@ -21,6 +21,7 @@ export function useWebRTC() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [reactions, setReactions] = useState<EmojiReaction[]>([]);
   const [lanIps, setLanIps] = useState<string[]>([]);
+  const [nativeMediaStatus, setNativeMediaStatus] = useState<'idle' | 'starting' | 'ready' | 'streaming' | 'error'>('idle');
 
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -37,10 +38,49 @@ export function useWebRTC() {
   const pendingReconnectToken = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shuttingDown = useRef(false);
+  const nativeTargetPeerId = useRef<string | null>(null);
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { currentPeerIdRef.current = currentPeerId; }, [currentPeerId]);
+
+  useEffect(() => {
+    if (!window.parsage?.onNativePeerMessage) return;
+    return window.parsage.onNativePeerMessage(({ targetPeerId, message }) => {
+      if (targetPeerId !== nativeTargetPeerId.current || !message) return;
+      if (message.type === 'ready') {
+        setNativeMediaStatus('ready');
+      } else if (message.type === 'offer' && typeof message.sdp === 'string') {
+        wsRef.current?.send(JSON.stringify({
+          type: 'offer', targetPeerId, sdp: { type: 'offer', sdp: message.sdp }
+        }));
+        setNativeMediaStatus('streaming');
+      } else if (message.type === 'ice-candidate') {
+        wsRef.current?.send(JSON.stringify({
+          type: 'ice-candidate',
+          targetPeerId,
+          candidate: { candidate: message.candidate, sdpMLineIndex: message.sdpMLineIndex }
+        }));
+      } else if (message.type === 'input') {
+        const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
+        const packet = message.packet;
+        const allowed = packet?.type === 'gamepad'
+          ? peer?.permissions.gamepad
+          : packet?.type === 'mouse'
+            ? peer?.permissions.mouse
+            : packet?.type === 'keyboard'
+              ? peer?.permissions.keyboard
+              : false;
+        if (peer?.approved && allowed) window.parsage?.sendInputPacket(packet);
+      } else if (message.type === 'error') {
+        setNativeMediaStatus('error');
+        setErrorMsg(`Native media failed: ${message.message || 'unknown error'}`);
+      } else if (message.type === 'stopped') {
+        setNativeMediaStatus('idle');
+        nativeTargetPeerId.current = null;
+      }
+    });
+  }, []);
 
   // Fetch LAN IPs for Local Direct Connect
   useEffect(() => {
@@ -321,6 +361,14 @@ export function useWebRTC() {
 
       case 'room-state':
         setRoomState(msg.state);
+        if (nativeTargetPeerId.current) {
+          const nativePeer = msg.state.peers.find((peer: PeerInfo) => peer.id === nativeTargetPeerId.current);
+          if (!nativePeer?.approved) {
+            window.parsage?.stopNativePeer?.();
+            nativeTargetPeerId.current = null;
+            setNativeMediaStatus('idle');
+          }
+        }
         if (currentPeerIdRef.current) {
           const self = msg.state.peers.find((p: PeerInfo) => p.id === currentPeerIdRef.current);
           if (self) setAssignedSlot(self.slot);
@@ -355,6 +403,13 @@ export function useWebRTC() {
       }
 
       case 'answer': {
+        if (isHostRef.current && msg.fromPeerId === nativeTargetPeerId.current && window.parsage?.signalNativePeer) {
+          window.parsage.signalNativePeer({
+            targetPeerId: msg.fromPeerId,
+            message: { type: 'answer', sdp: msg.sdp?.sdp || '' }
+          });
+          break;
+        }
         const pc = peerConnections.current.get(msg.fromPeerId);
         if (pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -363,6 +418,17 @@ export function useWebRTC() {
       }
 
       case 'ice-candidate': {
+        if (isHostRef.current && msg.fromPeerId === nativeTargetPeerId.current && window.parsage?.signalNativePeer) {
+          window.parsage.signalNativePeer({
+            targetPeerId: msg.fromPeerId,
+            message: {
+              type: 'ice-candidate',
+              candidate: msg.candidate?.candidate || '',
+              sdpMLineIndex: msg.candidate?.sdpMLineIndex || 0
+            }
+          });
+          break;
+        }
         const pc = peerConnections.current.get(msg.fromPeerId);
         if (pc && msg.candidate) {
           try {
@@ -397,6 +463,11 @@ export function useWebRTC() {
 
   const startScreenCapture = async (fps = 60, resolution = '1080p', maxBitrateMbps = 25) => {
     try {
+      if (nativeTargetPeerId.current) {
+        await window.parsage?.stopNativePeer?.();
+        nativeTargetPeerId.current = null;
+        setNativeMediaStatus('idle');
+      }
       let height = 1080;
       let width = 1920;
       if (resolution === '720p') { height = 720; width = 1280; }
@@ -441,6 +512,45 @@ export function useWebRTC() {
       setErrorMsg(`Screen capture failed: ${err.message}`);
       return null;
     }
+  };
+
+  const startNativeCapture = async (targetPeerId: string, fps = 60, maxBitrateMbps = 25) => {
+    if (!window.parsage?.startNativePeer) {
+      setErrorMsg('Native media is available only in the installed Parsage desktop app.');
+      return false;
+    }
+    const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
+    if (!isHostRef.current || !peer?.approved) {
+      setErrorMsg('Approve a viewer before starting native media.');
+      return false;
+    }
+    setNativeMediaStatus('starting');
+    nativeTargetPeerId.current = targetPeerId;
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    setLocalStream(null);
+    const browserPeer = peerConnections.current.get(targetPeerId);
+    browserPeer?.close();
+    peerConnections.current.delete(targetPeerId);
+    dataChannels.current.delete(targetPeerId);
+    const result = await window.parsage.startNativePeer({
+      targetPeerId,
+      fps,
+      bitrate: maxBitrateMbps
+    });
+    if (!result.ok) {
+      nativeTargetPeerId.current = null;
+      setNativeMediaStatus('error');
+      setErrorMsg(result.error || 'Could not start native media.');
+      return false;
+    }
+    return true;
+  };
+
+  const stopNativeCapture = async () => {
+    await window.parsage?.stopNativePeer?.();
+    nativeTargetPeerId.current = null;
+    setNativeMediaStatus('idle');
   };
 
   const createRoom = (hostName: string, settings?: any) => {
@@ -516,6 +626,7 @@ export function useWebRTC() {
     assignedSlot,
     remoteStream,
     localStream,
+    nativeMediaStatus,
     latencyMs,
     errorMsg,
     chatMessages,
@@ -523,6 +634,8 @@ export function useWebRTC() {
     lanIps,
     setErrorMsg,
     startScreenCapture,
+    startNativeCapture,
+    stopNativeCapture,
     createRoom,
     joinRoom,
     approvePeer,

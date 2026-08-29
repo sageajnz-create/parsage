@@ -36,6 +36,8 @@ Implementation note: signaling sessions currently have a 15-second reconnect gra
 
 Acceptance: 1080p60 under 25 Mbps with no sustained frame drops; latency and quality gates documented per supported GPU.
 
+Integration note: an opt-in, single-viewer Electron path now connects the portal-backed GStreamer sender to authenticated room SDP/ICE and native input-channel handling. The item remains open until a remote Chromium viewer and the recovery/latency acceptance gates pass end to end.
+
 ## P2 — Input parity
 
 - [x] Permission-checked gamepad/mouse bridge

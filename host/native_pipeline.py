@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 
 import gi
@@ -152,6 +153,137 @@ def add_webrtc_loopback(encoding_chain):
         "webrtcbin name=receiver bundle-policy=max-bundle "
         "receiver. ! queue name=receive_queue ! fakesink name=received sync=false signal-handoffs=true"
     )
+
+
+def emit_peer_message(message):
+    print(json.dumps(message), flush=True)
+
+
+def parse_session_description(kind, sdp_text):
+    result, message = GstSdp.SDPMessage.new()
+    if result != GstSdp.SDPResult.OK:
+        raise RuntimeError("Could not allocate an SDP message")
+    result = GstSdp.sdp_message_parse_buffer(sdp_text.encode("utf-8"), message)
+    if result != GstSdp.SDPResult.OK:
+        raise RuntimeError("Could not parse the remote SDP")
+    sdp_type = (
+        GstWebRTC.WebRTCSDPType.ANSWER if kind == "answer"
+        else GstWebRTC.WebRTCSDPType.OFFER
+    )
+    return GstWebRTC.WebRTCSessionDescription.new(sdp_type, message)
+
+
+def run_webrtc_peer(args):
+    """Run one native H.264 sender controlled by newline-delimited JSON on stdio."""
+    caps = capabilities()
+    encoder = (
+        "h264_software" if args.test_source else
+        args.encoder if args.encoder != "auto" else caps["recommended_encoder"]
+    )
+    if not encoder or not caps["encoders"].get(encoder):
+        raise RuntimeError(f"Encoder is unavailable: {encoder or 'none'}")
+
+    session = None if args.test_source else ScreenCastSession()
+    pipeline = None
+    loop = GLib.MainLoop()
+    try:
+        if session:
+            fd, target_property, target = session.open()
+            chain = build_encoding_chain(
+                fd, target_property, target, encoder, args.bitrate * 1000, args.fps
+            )
+        else:
+            chain = (
+                "videotestsrc is-live=true pattern=ball "
+                f"! video/x-raw,width=1280,height=720,framerate={args.fps}/1 "
+                "! videoconvert ! video/x-raw,format=NV12 "
+                f"! x264enc bitrate={args.bitrate * 1000} speed-preset=ultrafast "
+                f"tune=zerolatency key-int-max={args.fps} bframes=0 "
+                "! video/x-h264,profile=main ! h264parse "
+            )
+        description = chain + (
+            "! rtph264pay pt=96 config-interval=-1 aggregate-mode=zero-latency "
+            "! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 "
+            "! webrtcbin name=sender bundle-policy=max-bundle"
+        )
+        pipeline = Gst.parse_launch(description)
+        sender = pipeline.get_by_name("sender")
+
+        sender.connect("on-ice-candidate", lambda _element, mline, candidate: emit_peer_message({
+            "type": "ice-candidate", "sdpMLineIndex": mline, "candidate": candidate
+        }))
+
+        def attach_data_channel(channel):
+            def on_message(_channel, payload):
+                try:
+                    emit_peer_message({"type": "input", "packet": json.loads(payload)})
+                except (ValueError, TypeError):
+                    pass
+            channel.connect("on-message-string", on_message)
+
+        def on_data_channel(_element, channel):
+            attach_data_channel(channel)
+
+        sender.connect("on-data-channel", on_data_channel)
+        pipeline.set_state(Gst.State.READY)
+        native_channel = sender.emit("create-data-channel", "parsage-native-input", None)
+        if native_channel:
+            attach_data_channel(native_channel)
+
+        def offer_created(promise, *_args):
+            reply = promise.get_reply()
+            offer = reply.get_value("offer")
+            sender.emit("set-local-description", offer, Gst.Promise.new())
+            emit_peer_message({"type": "offer", "sdp": offer.sdp.as_text()})
+
+        def negotiation_needed(_element):
+            promise = Gst.Promise.new_with_change_func(offer_created, None, None)
+            sender.emit("create-offer", None, promise)
+
+        sender.connect("on-negotiation-needed", negotiation_needed)
+
+        def apply_message(message):
+            try:
+                if message.get("type") == "answer" and isinstance(message.get("sdp"), str):
+                    answer = parse_session_description("answer", message["sdp"])
+                    sender.emit("set-remote-description", answer, Gst.Promise.new())
+                elif message.get("type") == "ice-candidate" and isinstance(message.get("candidate"), str):
+                    sender.emit("add-ice-candidate", int(message.get("sdpMLineIndex", 0)), message["candidate"])
+                elif message.get("type") == "stop":
+                    loop.quit()
+            except Exception as error:
+                emit_peer_message({"type": "error", "message": str(error)})
+            return False
+
+        def read_commands():
+            for line in sys.stdin:
+                try:
+                    message = json.loads(line)
+                    GLib.idle_add(apply_message, message)
+                except (ValueError, TypeError) as error:
+                    emit_peer_message({"type": "error", "message": f"Invalid control message: {error}"})
+            GLib.idle_add(loop.quit)
+
+        threading.Thread(target=read_commands, daemon=True).start()
+        bus = pipeline.get_bus()
+        bus.add_signal_watch()
+
+        def bus_message(_bus, message):
+            if message.type == Gst.MessageType.ERROR:
+                error, debug = message.parse_error()
+                emit_peer_message({"type": "error", "message": f"{error.message} ({debug or 'no details'})"})
+                loop.quit()
+
+        bus.connect("message", bus_message)
+        pipeline.set_state(Gst.State.PLAYING)
+        emit_peer_message({"type": "ready", "encoder": encoder})
+        loop.run()
+        return 0
+    finally:
+        if pipeline:
+            pipeline.set_state(Gst.State.NULL)
+        if session:
+            session.close()
 
 
 def run_benchmark(args):
@@ -349,6 +481,11 @@ def main():
     loopback.add_argument("--fps", type=int, default=60)
     loopback.add_argument("--seconds", type=int, default=10)
     loopback.add_argument("--test-source", action="store_true", help=argparse.SUPPRESS)
+    peer = subparsers.add_parser("webrtc-peer", help="Run a signaling-controlled native WebRTC sender")
+    peer.add_argument("--encoder", choices=("auto", "h264_vaapi", "h264_software"), default="auto")
+    peer.add_argument("--bitrate", type=int, default=25, help="Target bitrate in Mbps")
+    peer.add_argument("--fps", type=int, default=60)
+    peer.add_argument("--test-source", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.command == "probe":
@@ -356,6 +493,8 @@ def main():
         return 0
     if args.command == "benchmark":
         return run_benchmark(args)
+    if args.command == "webrtc-peer":
+        return run_webrtc_peer(args)
     return run_webrtc_loopback(args)
 
 

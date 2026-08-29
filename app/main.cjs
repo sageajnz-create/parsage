@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
+const readline = require('readline');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -12,6 +13,8 @@ const INPUT_PORT = 7778;
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 let inputSocket = null;
+let nativePeerProcess = null;
+let nativePeerOwner = null;
 
 function getJoinCode(argv = process.argv) {
   const argument = argv.find((value) => value.startsWith('--join='));
@@ -81,6 +84,20 @@ function stopBackgroundServices() {
     try { serverProcess.kill('SIGTERM'); } catch (e) {}
     serverProcess = null;
   }
+  stopNativePeer();
+}
+
+function stopNativePeer() {
+  if (nativePeerProcess) {
+    try { nativePeerProcess.stdin.write('{"type":"stop"}\n'); } catch (_error) {}
+    try { nativePeerProcess.kill('SIGTERM'); } catch (_error) {}
+    nativePeerProcess = null;
+  }
+  nativePeerOwner = null;
+}
+
+function isTrustedRenderer(event) {
+  return event.senderFrame.url.startsWith(`http://127.0.0.1:${PORT}/`);
 }
 
 function waitForServer(callback, maxAttempts = 30) {
@@ -150,12 +167,58 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     ipcMain.on('input-packet', (event, packet) => {
-      if (event.senderFrame.url.startsWith(`http://127.0.0.1:${PORT}/`)) sendInputPacket(packet);
+      if (isTrustedRenderer(event)) sendInputPacket(packet);
     });
     ipcMain.handle('open-external', async (event, url) => {
       if (!event.senderFrame.url.startsWith(`http://127.0.0.1:${PORT}/`)) return false;
       if (typeof url !== 'string' || !url.startsWith(`http://127.0.0.1:${PORT}/?authPair=`)) return false;
       await shell.openExternal(url);
+      return true;
+    });
+    ipcMain.handle('native-peer-start', async (event, options = {}) => {
+      if (!isTrustedRenderer(event)) return { ok: false, error: 'Untrusted renderer.' };
+      const targetPeerId = typeof options.targetPeerId === 'string' ? options.targetPeerId : '';
+      const fps = Number.isInteger(options.fps) && options.fps >= 15 && options.fps <= 240 ? options.fps : 60;
+      const bitrate = Number.isInteger(options.bitrate) && options.bitrate >= 2 && options.bitrate <= 100 ? options.bitrate : 25;
+      if (!/^peer-[a-z0-9-]+$/.test(targetPeerId)) return { ok: false, error: 'Invalid target peer.' };
+      stopNativePeer();
+      const script = path.join(ROOT_DIR, 'host', 'native_pipeline.py');
+      nativePeerOwner = targetPeerId;
+      nativePeerProcess = spawn('python3', [script, 'webrtc-peer', '--fps', String(fps), '--bitrate', String(bitrate)], {
+        cwd: ROOT_DIR,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      const peerProcess = nativePeerProcess;
+      const lines = readline.createInterface({ input: peerProcess.stdout });
+      lines.on('line', (line) => {
+        try {
+          event.sender.send('native-peer-message', { targetPeerId, message: JSON.parse(line) });
+        } catch (_error) {
+          event.sender.send('native-peer-message', { targetPeerId, message: { type: 'error', message: 'Invalid native media response.' } });
+        }
+      });
+      peerProcess.stderr.on('data', (chunk) => console.error('[Native Media]', chunk.toString().trim()));
+      peerProcess.on('error', (error) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('native-peer-message', { targetPeerId, message: { type: 'error', message: error.message } });
+        }
+      });
+      peerProcess.on('exit', (code) => {
+        if (!event.sender.isDestroyed()) event.sender.send('native-peer-message', { targetPeerId, message: { type: 'stopped', code } });
+        if (nativePeerProcess === peerProcess) {
+          nativePeerProcess = null;
+          nativePeerOwner = null;
+        }
+      });
+      return { ok: true };
+    });
+    ipcMain.on('native-peer-signal', (event, payload) => {
+      if (!isTrustedRenderer(event) || !nativePeerProcess || payload?.targetPeerId !== nativePeerOwner) return;
+      try { nativePeerProcess.stdin.write(`${JSON.stringify(payload.message)}\n`); } catch (_error) {}
+    });
+    ipcMain.handle('native-peer-stop', (event) => {
+      if (!isTrustedRenderer(event)) return false;
+      stopNativePeer();
       return true;
     });
     startBackgroundServices();

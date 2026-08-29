@@ -45,12 +45,15 @@ export const App: React.FC = () => {
     assignedSlot,
     remoteStream,
     localStream,
+    nativeMediaStatus,
     latencyMs,
     errorMsg,
     chatMessages,
     reactions,
     lanIps,
     startScreenCapture,
+    startNativeCapture,
+    stopNativeCapture,
     createRoom,
     joinRoom,
     approvePeer,
@@ -118,6 +121,9 @@ export const App: React.FC = () => {
             chatMessages={chatMessages}
             onCreateRoom={handleStartHostingSession}
             onStartCapture={startScreenCapture}
+            onStartNativeCapture={startNativeCapture}
+            onStopNativeCapture={stopNativeCapture}
+            nativeMediaStatus={nativeMediaStatus}
             onApprovePeer={approvePeer}
             onUpdatePermissions={updatePermissions}
             onKickPeer={kickPeer}

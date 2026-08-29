@@ -1,6 +1,11 @@
 import unittest
 
-from native_pipeline import build_pipeline, build_webrtc_loopback_pipeline, capabilities
+from native_pipeline import (
+    build_encoding_chain,
+    build_pipeline,
+    build_webrtc_loopback_pipeline,
+    capabilities,
+)
 
 
 class NativePipelineTests(unittest.TestCase):
@@ -31,6 +36,12 @@ class NativePipelineTests(unittest.TestCase):
         self.assertIn("webrtcbin name=receiver", pipeline)
         self.assertIn("queue name=receive_queue", pipeline)
         self.assertIn("fakesink name=received", pipeline)
+
+    def test_live_peer_chain_is_h264_ready_for_webrtc_packetization(self):
+        chain = build_encoding_chain(7, "path", "42", "h264_vaapi", 12_000, 60)
+        self.assertIn("pipewiresrc", chain)
+        self.assertIn("vah264enc bitrate=12000", chain)
+        self.assertTrue(chain.rstrip().endswith("! h264parse"))
 
 
 if __name__ == "__main__":

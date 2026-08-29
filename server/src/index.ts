@@ -2,13 +2,13 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createHash, randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomManager } from './room-manager.js';
 import { getIceServers } from './stun-turn.js';
 import { ParsageMessage } from './types.js';
 import { AuthService } from './auth.js';
+import { ReconnectRegistry } from './reconnect.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -255,19 +255,14 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 let nextClientId = 1;
 const reconnectGraceMs = 15_000;
-const reconnectTokens = new Map<string, string>();
+const reconnectTokens = new ReconnectRegistry();
 const disconnectTimers = new Map<string, NodeJS.Timeout>();
-
-function hashReconnectToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
 
 wss.on('connection', (ws: WebSocket, req) => {
   let clientId = `peer-${Date.now().toString(36)}-${nextClientId++}`;
   const authProfile = auth.getProfile(req.headers.cookie);
   roomManager.registerClient(clientId, ws, authProfile?.name || 'Anonymous', authProfile?.id || null);
-  const reconnectToken = randomBytes(32).toString('base64url');
-  reconnectTokens.set(hashReconnectToken(reconnectToken), clientId);
+  let reconnectToken = reconnectTokens.issue(clientId);
   ws.send(JSON.stringify({ type: 'session-ready', token: reconnectToken }));
   let rateWindowStartedAt = Date.now();
   let messagesInWindow = 0;
@@ -291,8 +286,7 @@ wss.on('connection', (ws: WebSocket, req) => {
       switch (msg.type) {
         case 'resume-session': {
           if (typeof msg.token !== 'string') break;
-          const tokenHash = hashReconnectToken(msg.token);
-          const previousClientId = reconnectTokens.get(tokenHash);
+          const previousClientId = reconnectTokens.resolve(msg.token);
           if (!previousClientId || previousClientId === clientId) {
             ws.send(JSON.stringify({ type: 'session-resume-failed' }));
             break;
@@ -303,10 +297,7 @@ wss.on('connection', (ws: WebSocket, req) => {
             break;
           }
           roomManager.removeClient(clientId);
-          for (const [hash, mappedId] of reconnectTokens) {
-            if (mappedId === clientId || mappedId === previousClientId) reconnectTokens.delete(hash);
-          }
-          reconnectTokens.set(hashReconnectToken(reconnectToken), previousClientId);
+          reconnectToken = reconnectTokens.rotate(previousClientId, clientId, reconnectToken);
           const timer = disconnectTimers.get(previousClientId);
           if (timer) clearTimeout(timer);
           disconnectTimers.delete(previousClientId);
@@ -447,9 +438,7 @@ wss.on('connection', (ws: WebSocket, req) => {
     const timer = setTimeout(() => {
       roomManager.removeClient(clientId);
       disconnectTimers.delete(clientId);
-      for (const [hash, mappedId] of reconnectTokens) {
-        if (mappedId === clientId) reconnectTokens.delete(hash);
-      }
+      reconnectTokens.remove(clientId);
     }, reconnectGraceMs);
     timer.unref();
     disconnectTimers.set(clientId, timer);

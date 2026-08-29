@@ -14,6 +14,9 @@ interface HostViewProps {
   chatMessages: ChatMessage[];
   onCreateRoom: (name: string, settings?: any) => void;
   onStartCapture: (fps: number, resolution: string, maxBitrateMbps: number) => Promise<MediaStream | null>;
+  onStartNativeCapture: (targetPeerId: string, fps: number, maxBitrateMbps: number) => Promise<boolean>;
+  onStopNativeCapture: () => Promise<void>;
+  nativeMediaStatus: 'idle' | 'starting' | 'ready' | 'streaming' | 'error';
   onApprovePeer: (peerId: string, slot?: number | null) => void;
   onUpdatePermissions: (peerId: string, permissions: PeerInfo['permissions']) => void;
   onKickPeer: (peerId: string) => void;
@@ -30,6 +33,9 @@ export const HostView: React.FC<HostViewProps> = ({
   chatMessages,
   onCreateRoom,
   onStartCapture,
+  onStartNativeCapture,
+  onStopNativeCapture,
+  nativeMediaStatus,
   onApprovePeer,
   onUpdatePermissions,
   onKickPeer,
@@ -67,6 +73,11 @@ export const HostView: React.FC<HostViewProps> = ({
 
   const handleStartCapture = async () => {
     await onStartCapture(targetFps, resolution, maxBitrate);
+  };
+
+  const handleStartNativeCapture = async () => {
+    const viewer = roomState?.peers.find((peer) => peer.approved);
+    if (viewer) await onStartNativeCapture(viewer.id, targetFps, maxBitrate);
   };
 
   const copyRoomLink = () => {
@@ -340,10 +351,28 @@ export const HostView: React.FC<HostViewProps> = ({
                 <ScreenShare size={18} /> Desktop & Game Broadcast
               </h3>
               {!localStream && (
-                <button className="btn btn-success" onClick={handleStartCapture} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-                  <ScreenShare size={16} />
-                  <span>Select Game / Display</span>
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {nativeMediaStatus === 'idle' || nativeMediaStatus === 'error' ? (
+                    <button
+                      className="btn btn-success"
+                      onClick={handleStartNativeCapture}
+                      disabled={!roomState.peers.some((peer) => peer.approved)}
+                      style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                      title="Native VA-API currently supports one approved viewer"
+                    >
+                      <Zap size={16} />
+                      <span>Native VA-API</span>
+                    </button>
+                  ) : (
+                    <button className="btn btn-danger" onClick={onStopNativeCapture} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+                      <span>Stop Native</span>
+                    </button>
+                  )}
+                  <button className="btn btn-secondary" onClick={handleStartCapture} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+                    <ScreenShare size={16} />
+                    <span>Browser Capture</span>
+                  </button>
+                </div>
               )}
             </div>
 
@@ -367,6 +396,16 @@ export const HostView: React.FC<HostViewProps> = ({
                   muted
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
+              ) : nativeMediaStatus !== 'idle' && nativeMediaStatus !== 'error' ? (
+                <div style={{ textAlign: 'center', padding: '24px' }}>
+                  <Zap size={48} color="var(--reggae-green-bright)" style={{ marginBottom: '12px' }} />
+                  <p style={{ color: 'var(--reggae-green-bright)', fontWeight: 700 }}>
+                    Native media: {nativeMediaStatus}
+                  </p>
+                  <p style={{ color: 'var(--fg-muted)', fontSize: '0.82rem', marginTop: '8px' }}>
+                    PipeWire → hardware H.264 → WebRTC (single viewer preview)
+                  </p>
+                </div>
               ) : (
                 <div style={{ textAlign: 'center', padding: '24px' }}>
                   <ScreenShare size={48} color="var(--border-muted)" style={{ marginBottom: '12px' }} />
