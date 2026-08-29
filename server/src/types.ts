@@ -94,6 +94,10 @@ export type ParsageMessage =
   | { type: 'offer'; targetPeerId: string; sdp: any }
   | { type: 'answer'; targetPeerId: string; sdp: any }
   | { type: 'ice-candidate'; targetPeerId: string; candidate: any }
+  | { type: 'resume-session'; token: string }
+  | { type: 'session-ready'; token: string }
+  | { type: 'session-resumed'; peerId: string; state: RoomState | null; isHost: boolean }
+  | { type: 'session-resume-failed' }
   | { type: 'ping'; timestamp: number }
   | { type: 'pong'; timestamp: number; serverTime: number }
   | { type: 'error'; message: string };

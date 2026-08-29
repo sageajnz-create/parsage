@@ -29,6 +29,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export class RoomManager {
   private rooms: Map<string, RoomState> = new Map();
   private clients: Map<string, ConnectedClient> = new Map();
+  private approvedIdentities: Map<string, Set<string>> = new Map();
 
   public generateRoomCode(): string {
     const word = REGGAE_WORDS[randomInt(REGGAE_WORDS.length)];
@@ -67,6 +68,13 @@ export class RoomManager {
     return this.clients.get(id);
   }
 
+  public reconnectClient(id: string, ws: WebSocket, authUserId: string | null): ConnectedClient | null {
+    const client = this.clients.get(id);
+    if (!client || client.authUserId !== authUserId) return null;
+    client.ws = ws;
+    return client;
+  }
+
   public canExchangeRtc(senderId: string, targetId: string): boolean {
     const sender = this.clients.get(senderId);
     const target = this.clients.get(targetId);
@@ -93,6 +101,7 @@ export class RoomManager {
           message: 'Host has ended the streaming session.'
         }, id);
         this.rooms.delete(roomCode);
+        this.approvedIdentities.delete(roomCode);
       } else {
         if (client.slot !== null && room.slots[client.slot] === id) {
           room.slots[client.slot] = null;
@@ -139,6 +148,7 @@ export class RoomManager {
     };
 
     this.rooms.set(roomCode, state);
+    this.approvedIdentities.set(roomCode, new Set());
     return { roomCode, state };
   }
 
@@ -157,7 +167,10 @@ export class RoomManager {
     client.roomCode = room.roomCode;
     client.name = peerName;
     client.role = role;
-    client.approved = !room.settings.requireApproval;
+    const identityWasApproved = client.authUserId
+      ? this.approvedIdentities.get(room.roomCode)?.has(client.authUserId) === true
+      : false;
+    client.approved = !room.settings.requireApproval || identityWasApproved;
     client.joinedAt = Date.now();
 
     let assignedSlot: number | null = null;
@@ -200,6 +213,9 @@ export class RoomManager {
     if (!target) return false;
 
     target.approved = true;
+    if (target.authUserId) {
+      this.approvedIdentities.get(room.roomCode)?.add(target.authUserId);
+    }
 
     if (slot !== undefined && slot !== null && slot >= 0 && slot <= 3) {
       if (room.slots[slot] === null) {
@@ -299,6 +315,7 @@ export class RoomManager {
 
     const target = this.clients.get(targetPeerId);
     if (target) {
+      if (target.authUserId) this.approvedIdentities.get(room.roomCode)?.delete(target.authUserId);
       this.sendToPeer(targetPeerId, { type: 'error', message: 'You have been disconnected by the host.' });
       target.ws.close(1000, 'Kicked by host');
       this.removeClient(targetPeerId);
@@ -370,6 +387,7 @@ export class RoomManager {
       const participantIds = [room.hostId, ...room.peers.map(peer => peer.id)].filter(Boolean) as string[];
       for (const id of participantIds) this.clients.get(id)?.ws.close(4009, 'Room expired');
       this.rooms.delete(roomCode);
+      this.approvedIdentities.delete(roomCode);
       for (const id of participantIds) this.clients.delete(id);
     }
     return expired;

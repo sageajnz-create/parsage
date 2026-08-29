@@ -16,12 +16,14 @@
 - [x] Reject cross-room signaling
 - [x] TURN configuration through `TURN_URLS`, `TURN_USERNAME`, and `TURN_CREDENTIAL`
 - [x] Apply the selected video bitrate to WebRTC senders
-- [ ] Reconnect ICE after network changes without recreating the room
+- [x] Reconnect signaling and restart ICE after network changes without recreating the room
 - [x] Expire unattended approval requests and stale rooms
 - [x] Cryptographically strong invitation codes and join-attempt throttling
-- [ ] Authenticate signaling identities and bind invitations to an identity
+- [x] Authenticate signaling identities and bind host approvals to the verified identity
 
 Acceptance: 30-minute WAN session, forced Wi-Fi roam, restrictive-NAT relay test, and unauthorized-peer test all pass.
+
+Implementation note: signaling sessions currently have a 15-second reconnect grace period with rotating resume credentials. A verified guest's approval follows their Google subject across a reconnect; it is never inferred from their display name. The full WAN acceptance run above is still required before P0 can be considered validated in production.
 
 ## P1 — Gaming-quality media
 

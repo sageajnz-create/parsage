@@ -31,6 +31,12 @@ export function useWebRTC() {
   const isHostRef = useRef(false);
   const roomStateRef = useRef<RoomState | null>(null);
   const currentPeerIdRef = useRef<string | null>(null);
+  const negotiationLocks = useRef<Set<string>>(new Set());
+  const iceRestartTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const iceRestartAttempts = useRef<Map<string, number>>(new Map());
+  const pendingReconnectToken = useRef<string | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shuttingDown = useRef(false);
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
@@ -56,6 +62,7 @@ export function useWebRTC() {
   }, []);
 
   const connectSignaling = useCallback(() => {
+    if (shuttingDown.current) return;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -67,11 +74,14 @@ export function useWebRTC() {
     ws.onopen = () => {
       setWsConnected(true);
       setErrorMsg(null);
+      if (roomStateRef.current) {
+        peerConnections.current.forEach((_pc, peerId) => restartPeerIce(peerId, 'signaling reconnected'));
+      }
     };
 
     ws.onclose = () => {
       setWsConnected(false);
-      setTimeout(connectSignaling, 2000);
+      if (!shuttingDown.current) reconnectTimer.current = setTimeout(connectSignaling, 2000);
     };
 
     ws.onerror = (err) => {
@@ -100,12 +110,25 @@ export function useWebRTC() {
       bundlePolicy: 'max-bundle'
     });
 
+    const clearRestartTimer = () => {
+      const timer = iceRestartTimers.current.get(targetPeerId);
+      if (timer) clearTimeout(timer);
+      iceRestartTimers.current.delete(targetPeerId);
+    };
+
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') {
-        pc.restartIce();
-        negotiatePeer(pc, targetPeerId).catch(() => {
-          setErrorMsg('The peer connection failed and could not be recovered.');
-        });
+      if (pc.connectionState === 'connected') {
+        clearRestartTimer();
+        iceRestartAttempts.current.delete(targetPeerId);
+      } else if (pc.connectionState === 'failed') {
+        clearRestartTimer();
+        restartPeerIce(targetPeerId, 'connection failed');
+      } else if (pc.connectionState === 'disconnected' && !iceRestartTimers.current.has(targetPeerId)) {
+        const timer = setTimeout(() => {
+          iceRestartTimers.current.delete(targetPeerId);
+          if (pc.connectionState === 'disconnected') restartPeerIce(targetPeerId, 'connection stalled');
+        }, 3000);
+        iceRestartTimers.current.set(targetPeerId, timer);
       }
     };
 
@@ -155,10 +178,49 @@ export function useWebRTC() {
     await sender.setParameters(parameters);
   };
 
-  const negotiatePeer = async (pc: RTCPeerConnection, targetPeerId: string) => {
-    const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
-    await pc.setLocalDescription(offer);
-    wsRef.current?.send(JSON.stringify({ type: 'offer', targetPeerId, sdp: offer }));
+  const negotiatePeer = async (pc: RTCPeerConnection, targetPeerId: string, iceRestart = false) => {
+    if (negotiationLocks.current.has(targetPeerId) || pc.signalingState !== 'stable') return false;
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
+    negotiationLocks.current.add(targetPeerId);
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveVideo: true,
+        offerToReceiveAudio: true,
+        iceRestart
+      });
+      await pc.setLocalDescription(offer);
+      wsRef.current.send(JSON.stringify({ type: 'offer', targetPeerId, sdp: pc.localDescription }));
+      return true;
+    } finally {
+      negotiationLocks.current.delete(targetPeerId);
+    }
+  };
+
+  const restartPeerIce = async (targetPeerId: string, reason: string) => {
+    const pc = peerConnections.current.get(targetPeerId);
+    if (!pc || pc.connectionState === 'closed') return;
+    const attempts = (iceRestartAttempts.current.get(targetPeerId) || 0) + 1;
+    iceRestartAttempts.current.set(targetPeerId, attempts);
+    try {
+      pc.restartIce();
+      const started = await negotiatePeer(pc, targetPeerId, true);
+      if (!started) {
+        if (attempts < 4) {
+          const timer = setTimeout(() => restartPeerIce(targetPeerId, reason), 1500);
+          iceRestartTimers.current.set(targetPeerId, timer);
+        } else {
+          setErrorMsg('The peer connection could not recover after a network change.');
+        }
+      }
+    } catch (error) {
+      console.warn(`[Parsage] ICE restart failed (${reason}, attempt ${attempts})`, error);
+      if (attempts < 4) {
+        const timer = setTimeout(() => restartPeerIce(targetPeerId, reason), 1500);
+        iceRestartTimers.current.set(targetPeerId, timer);
+      } else {
+        setErrorMsg('The peer connection could not recover after a network change.');
+      }
+    }
   };
 
   const beginGuestConnection = async (hostId: string) => {
@@ -204,6 +266,44 @@ export function useWebRTC() {
         setCurrentPeerId(msg.hostId);
         break;
 
+      case 'session-ready': {
+        if (typeof msg.token !== 'string') break;
+        pendingReconnectToken.current = msg.token;
+        const savedToken = sessionStorage.getItem('parsage-reconnect-token');
+        if (savedToken && savedToken !== msg.token && wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resume-session', token: savedToken }));
+        } else {
+          sessionStorage.setItem('parsage-reconnect-token', msg.token);
+        }
+        break;
+      }
+
+      case 'session-resumed': {
+        if (pendingReconnectToken.current) {
+          sessionStorage.setItem('parsage-reconnect-token', pendingReconnectToken.current);
+          pendingReconnectToken.current = null;
+        }
+        setCurrentPeerId(msg.peerId);
+        setRoomState(msg.state);
+        setIsHost(msg.isHost);
+        if (msg.state) {
+          const self = msg.state.peers.find((peer: PeerInfo) => peer.id === msg.peerId);
+          setAssignedSlot(self?.slot ?? null);
+          peerConnections.current.forEach((_pc, peerId) => restartPeerIce(peerId, 'session resumed'));
+        }
+        break;
+      }
+
+      case 'session-resume-failed':
+        if (pendingReconnectToken.current) {
+          sessionStorage.setItem('parsage-reconnect-token', pendingReconnectToken.current);
+          pendingReconnectToken.current = null;
+        }
+        setRoomState(null);
+        setCurrentPeerId(null);
+        setIsHost(false);
+        break;
+
       case 'room-joined':
         setRoomState(msg.state);
         setIsHost(false);
@@ -240,6 +340,9 @@ export function useWebRTC() {
 
       case 'offer': {
         const pc = createPeerConnection(msg.fromPeerId, false);
+        if (pc.signalingState === 'have-local-offer') {
+          await pc.setLocalDescription({ type: 'rollback' });
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -276,9 +379,19 @@ export function useWebRTC() {
   };
 
   useEffect(() => {
+    shuttingDown.current = false;
     connectSignaling();
+    const restartAfterNetworkChange = () => {
+      peerConnections.current.forEach((_pc, peerId) => restartPeerIce(peerId, 'network changed'));
+    };
+    window.addEventListener('online', restartAfterNetworkChange);
     return () => {
+      shuttingDown.current = true;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      window.removeEventListener('online', restartAfterNetworkChange);
       wsRef.current?.close();
+      iceRestartTimers.current.forEach(clearTimeout);
+      iceRestartTimers.current.clear();
     };
   }, [connectSignaling]);
 

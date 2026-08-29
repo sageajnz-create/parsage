@@ -118,3 +118,51 @@ test('releases a slot and removes the room when its host leaves', () => {
   assert.equal(removed.wasHost, true);
   assert.equal(rooms.getRoom(roomCode), undefined);
 });
+
+test('remembers approval for the same verified identity across reconnects', () => {
+  const rooms = new RoomManager();
+  rooms.registerClient('host', socket(), 'Host', 'google-host');
+  rooms.registerClient('guest-old', socket(), 'Guest', 'google-guest');
+  const { roomCode } = rooms.createRoom('host', 'Host', { requireApproval: true });
+
+  rooms.joinRoom('guest-old', roomCode, 'Guest');
+  assert.equal(rooms.getClient('guest-old')?.approved, false);
+  assert.equal(rooms.approvePeer('host', 'guest-old', 0), true);
+  rooms.removeClient('guest-old');
+
+  rooms.registerClient('guest-new', socket(), 'Guest', 'google-guest');
+  const rejoined = rooms.joinRoom('guest-new', roomCode, 'Guest');
+  assert.equal(rejoined.success, true);
+  assert.equal(rooms.getClient('guest-new')?.approved, true);
+  assert.equal(rooms.getClient('guest-new')?.slot, 0);
+});
+
+test('does not transfer approval to an anonymous or different identity', () => {
+  const rooms = new RoomManager();
+  rooms.registerClient('host', socket(), 'Host', 'google-host');
+  rooms.registerClient('approved', socket(), 'Guest', 'google-approved');
+  const { roomCode } = rooms.createRoom('host', 'Host', { requireApproval: true });
+  rooms.joinRoom('approved', roomCode, 'Guest');
+  rooms.approvePeer('host', 'approved');
+  rooms.removeClient('approved');
+
+  rooms.registerClient('anonymous', socket());
+  rooms.joinRoom('anonymous', roomCode, 'Guest');
+  rooms.registerClient('different', socket(), 'Other', 'google-other');
+  rooms.joinRoom('different', roomCode, 'Other');
+
+  assert.equal(rooms.getClient('anonymous')?.approved, false);
+  assert.equal(rooms.getClient('different')?.approved, false);
+});
+
+test('reconnects only the same authenticated identity to an existing peer', () => {
+  const rooms = new RoomManager();
+  const oldSocket = socket();
+  const newSocket = socket();
+  rooms.registerClient('guest', oldSocket, 'Guest', 'google-guest');
+
+  assert.equal(rooms.reconnectClient('guest', newSocket, 'google-other'), null);
+  assert.equal(rooms.getClient('guest')?.ws, oldSocket);
+  assert.equal(rooms.reconnectClient('guest', newSocket, 'google-guest')?.id, 'guest');
+  assert.equal(rooms.getClient('guest')?.ws, newSocket);
+});
