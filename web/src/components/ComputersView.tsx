@@ -12,6 +12,8 @@ interface ComputersViewProps {
   onStopHosting?: () => void;
   onJoinRoom: (roomCode: string) => void;
   onOpenSettings: () => void;
+  pendingJoinCode?: string | null;
+  errorMsg?: string | null;
 }
 
 const STORAGE_KEY = 'parsage_saved_computers';
@@ -22,7 +24,9 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
   onStartHosting,
   onStopHosting,
   onJoinRoom,
-  onOpenSettings
+  onOpenSettings,
+  pendingJoinCode,
+  errorMsg
 }) => {
   const [joinCode, setJoinCode] = useState('');
   const [copied, setCopied] = useState(false);
@@ -60,6 +64,16 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+      {pendingJoinCode && !errorMsg && (
+        <div className="card" style={{ padding: '14px 18px', border: '1px solid var(--reggae-gold)', color: 'var(--reggae-gold)' }}>
+          Connecting to <strong>{pendingJoinCode}</strong>… waiting for the host to approve this viewer.
+        </div>
+      )}
+      {errorMsg && (
+        <div style={{ background: 'rgba(232, 17, 45, 0.15)', border: '1px solid var(--reggae-red)', color: 'var(--reggae-red-bright)', padding: '14px 18px', borderRadius: '8px' }}>
+          {errorMsg}
+        </div>
+      )}
       {/* Top Banner / Join Input */}
       <div className="card" style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>

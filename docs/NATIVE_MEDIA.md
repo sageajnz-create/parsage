@@ -36,3 +36,11 @@ The deterministic WebRTC transport test currently reaches `connected` on both pe
 The installed Electron app now exposes **Native VA-API** after one viewer has been approved. It launches a portal-authorized native sender, forwards its offer and ICE candidates over the existing signaling membership, and routes the viewer's answer and candidates back to GStreamer. Browser capture remains the supported fallback.
 
 This first integration slice is deliberately limited to one approved viewer. Its GStreamer control protocol, H.264 offer, ICE trickling, and SCTP media section are verified locally; a complete portal-to-remote-browser session must still pass the WAN acceptance run before the live native checkbox in the parity roadmap is closed. Multi-viewer native hosting will require one `webrtcbin` peer per viewer fed from a shared capture/encoder pipeline.
+
+The automated browser gate launches the signaling server, joins an isolated headless Chromium viewer, performs the browser-to-native handoff, and requires GStreamer's connection state to reach `connected`:
+
+```bash
+npm run test:native-browser
+```
+
+This gate caught and now covers two live-integration defects: renegotiating SCTP on the existing browser peer, and a missing `GstSdp` runtime import. It currently uses a deterministic test source; the portal-selected display remains the manual acceptance step.

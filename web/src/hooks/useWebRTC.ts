@@ -386,6 +386,15 @@ export function useWebRTC() {
         }, 3000);
         break;
 
+      case 'native-media-start': {
+        const existing = peerConnections.current.get(msg.fromPeerId);
+        existing?.close();
+        peerConnections.current.delete(msg.fromPeerId);
+        dataChannels.current.delete(msg.fromPeerId);
+        setRemoteStream(null);
+        break;
+      }
+
       case 'offer': {
         const pc = createPeerConnection(msg.fromPeerId, false);
         if (pc.signalingState === 'have-local-offer') {
@@ -533,6 +542,9 @@ export function useWebRTC() {
     browserPeer?.close();
     peerConnections.current.delete(targetPeerId);
     dataChannels.current.delete(targetPeerId);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'native-media-start', targetPeerId }));
+    }
     const result = await window.parsage.startNativePeer({
       targetPeerId,
       fps,

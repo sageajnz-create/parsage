@@ -408,7 +408,8 @@ wss.on('connection', (ws: WebSocket, req) => {
 
         case 'offer':
         case 'answer':
-        case 'ice-candidate': {
+        case 'ice-candidate':
+        case 'native-media-start': {
           if ('targetPeerId' in msg && msg.targetPeerId) {
             if (!roomManager.canExchangeRtc(clientId, msg.targetPeerId)) {
               ws.send(JSON.stringify({ type: 'error', message: 'RTC exchange is not authorized for this peer.' }));

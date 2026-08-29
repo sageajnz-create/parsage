@@ -10,6 +10,7 @@
     "build": "npm run build:web && cd server && npm run build",
     "build:web": "cd web && npm run build",
     "test": "cd server && npm test && cd ../web && npm run build && cd .. && python3 -m unittest discover -s host -p 'test_*.py'",
+    "test:native-browser": "npm run build && node scripts/test-native-browser.mjs",
     "start": "node server/dist/index.js",
     "host": "python3 host/parsage_host.py"
   }

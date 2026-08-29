@@ -16,6 +16,7 @@ import { AuthModal } from './components/AuthModal';
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<MainView>('computers');
   const [handledJoinLink, setHandledJoinLink] = useState(false);
+  const [pendingJoinCode, setPendingJoinCode] = useState<string | null>(null);
 
   const {
     profile,
@@ -77,6 +78,7 @@ export const App: React.FC = () => {
     if (!wsConnected || handledJoinLink || roomState) return;
     const joinParam = new URLSearchParams(window.location.search).get('join');
     if (joinParam) {
+      setPendingJoinCode(joinParam.trim().toUpperCase());
       joinRoom(joinParam, profile.name);
       setHandledJoinLink(true);
     }
@@ -93,6 +95,7 @@ export const App: React.FC = () => {
   };
 
   const handleJoinSpecificRoom = (code: string) => {
+    setPendingJoinCode(code.trim().toUpperCase());
     joinRoom(code, profile.name);
   };
 
@@ -157,6 +160,8 @@ export const App: React.FC = () => {
                 onStartHosting={handleStartHostingSession}
                 onJoinRoom={handleJoinSpecificRoom}
                 onOpenSettings={() => setCurrentView('settings')}
+                pendingJoinCode={pendingJoinCode}
+                errorMsg={errorMsg}
               />
             )}
 

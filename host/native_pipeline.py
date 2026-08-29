@@ -14,7 +14,7 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GstSdp", "1.0")
 gi.require_version("GstWebRTC", "1.0")
 gi.require_version("Xdp", "1.0")
-from gi.repository import GLib, Gst, GstWebRTC, Xdp
+from gi.repository import GLib, Gst, GstSdp, GstWebRTC, Xdp
 
 
 def element_available(name):
@@ -211,6 +211,9 @@ def run_webrtc_peer(args):
 
         sender.connect("on-ice-candidate", lambda _element, mline, candidate: emit_peer_message({
             "type": "ice-candidate", "sdpMLineIndex": mline, "candidate": candidate
+        }))
+        sender.connect("notify::connection-state", lambda element, _property: emit_peer_message({
+            "type": "connection-state", "state": element.get_property("connection-state").value_nick
         }))
 
         def attach_data_channel(channel):
