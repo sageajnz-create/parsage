@@ -8,6 +8,9 @@ import { WebSocket } from '../server/node_modules/ws/wrapper.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const port = 17779;
+const debuggingPort = 19223;
+const usePortal = process.argv.includes('--portal');
+const useSoftwareEncoder = process.argv.includes('--software');
 const profile = mkdtempSync(join(tmpdir(), 'parsage-native-browser-'));
 const children = [];
 let host;
@@ -31,6 +34,36 @@ function timeout(ms, message) {
     const timer = setTimeout(() => reject(new Error(message)), ms);
     timer.unref();
   });
+}
+
+async function browserMediaState() {
+  const pages = await fetch(`http://127.0.0.1:${debuggingPort}/json`).then(response => response.json());
+  const page = pages.find(candidate => candidate.type === 'page' && candidate.webSocketDebuggerUrl);
+  if (!page) throw new Error('Chromium debugging page was not available.');
+  const debug = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolveOpen, rejectOpen) => {
+    debug.once('open', resolveOpen);
+    debug.once('error', rejectOpen);
+  });
+  const result = await new Promise((resolveResult, rejectResult) => {
+    const timer = setTimeout(() => rejectResult(new Error('Chromium media-state query timed out.')), 3000);
+    debug.on('message', data => {
+      const message = JSON.parse(data.toString());
+      if (message.id !== 1) return;
+      clearTimeout(timer);
+      resolveResult(message.result.result.value);
+    });
+    debug.send(JSON.stringify({
+      id: 1,
+      method: 'Runtime.evaluate',
+      params: {
+        expression: `(() => { const video = document.querySelector('video'); const quality = video?.getVideoPlaybackQuality?.(); return video ? { width: video.videoWidth, height: video.videoHeight, readyState: video.readyState, currentTime: video.currentTime, decodedFrames: quality?.totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0 } : null; })()`,
+        returnByValue: true
+      }
+    }));
+  });
+  debug.close();
+  return result;
 }
 
 try {
@@ -79,7 +112,8 @@ try {
   }));
   const room = await next(message => message.type === 'room-created');
   const browser = child('chromium', [
-    '--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`,
+    '--headless=new', '--no-sandbox', '--disable-gpu', `--remote-debugging-port=${debuggingPort}`,
+    `--user-data-dir=${profile}`,
     `http://127.0.0.1:${port}/?join=${room.roomCode}`
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   let browserErrors = '';
@@ -92,10 +126,23 @@ try {
     && message.state.peers.some(peer => peer.id === targetPeerId && peer.approved));
   host.send(JSON.stringify({ type: 'native-media-start', targetPeerId }));
 
-  const native = child('python3', [
-    'host/native_pipeline.py', 'webrtc-peer', '--test-source', '--fps', '30', '--bitrate', '5'
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  if (usePortal) {
+    child('gst-launch-1.0', [
+      '-q', 'videotestsrc', 'is-live=true', 'pattern=ball', '!',
+      'video/x-raw,width=640,height=360,framerate=60/1', '!', 'videoconvert', '!', 'autovideosink'
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    await new Promise(resolveWait => setTimeout(resolveWait, 750));
+  }
+
+  const nativeArgs = [
+    'host/native_pipeline.py', 'webrtc-peer', '--fps', '60', '--bitrate', '25'
+  ];
+  if (!usePortal) nativeArgs.push('--test-source');
+  else if (useSoftwareEncoder) nativeArgs.push('--encoder', 'h264_software');
+  const native = child('python3', nativeArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
   let nativeErrors = '';
+  let nativeEncoder = null;
+  let nativeStats = { encoded_frames: 0 };
   native.stderr.on('data', chunk => { nativeErrors += chunk; });
 
   host.on('message', data => {
@@ -126,6 +173,10 @@ try {
         }));
       } else if (message.type === 'connection-state' && message.state === 'connected') {
         resolveConnected(message);
+      } else if (message.type === 'ready') {
+        nativeEncoder = message.encoder;
+      } else if (message.type === 'stats') {
+        nativeStats = { encoded_frames: message.encoded_frames };
       } else if (message.type === 'error') {
         rejectConnected(new Error(message.message));
       }
@@ -133,14 +184,36 @@ try {
   });
   await Promise.race([
     connected,
-    timeout(25_000, `Native browser connection timed out. Native: ${nativeErrors} Browser: ${browserErrors.slice(-1000)}`)
+    timeout(usePortal ? 120_000 : 25_000, `Native browser connection timed out. Native: ${nativeErrors} Browser: ${browserErrors.slice(-1000)}`)
   ]);
+
+  let media = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise(resolveWait => setTimeout(resolveWait, 250));
+    try {
+      media = await browserMediaState();
+      if (media?.width > 0 && media?.height > 0 && media?.readyState >= 2) break;
+    } catch {}
+  }
+  if (!media?.width || !media?.height || media.readyState < 2) {
+    throw new Error(`Chromium connected but did not decode a video frame: ${JSON.stringify(media)}`);
+  }
+  const firstDecodedFrames = media.decodedFrames;
+  await new Promise(resolveWait => setTimeout(resolveWait, 1000));
+  media = await browserMediaState();
+  if (!usePortal && media.decodedFrames <= firstDecodedFrames) {
+    throw new Error(`Chromium decoded a frame but the frame count did not advance. Media: ${JSON.stringify(media)} Native: ${JSON.stringify(nativeStats)}`);
+  }
 
   console.log(JSON.stringify({
     connected: true,
     roomCode: room.roomCode,
     viewerPeerId: targetPeerId,
-    transport: 'GStreamer H264/SCTP -> Chromium'
+    transport: 'GStreamer H264/SCTP -> Chromium',
+    source: usePortal ? 'PipeWire portal display' : 'deterministic test pattern',
+    encoder: nativeEncoder,
+    nativeStats,
+    decodedVideo: media
   }, null, 2));
 } finally {
   cleanup();

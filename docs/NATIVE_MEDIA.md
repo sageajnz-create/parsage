@@ -44,3 +44,11 @@ npm run test:native-browser
 ```
 
 This gate caught and now covers two live-integration defects: renegotiating SCTP on the existing browser peer, and a missing `GstSdp` runtime import. It currently uses a deterministic test source; the portal-selected display remains the manual acceptance step.
+
+The portal-backed variant is now automated as far as the required user consent allows:
+
+```bash
+npm run test:native-portal
+```
+
+On the development Radeon host it negotiated `h264_vaapi` and Chromium decoded the selected 1920×1080 PipeWire display at ready state 4. Portal mode requires real decoded frames and dimensions; the deterministic moving-pattern gate additionally requires the decoded-frame counter to advance. This distinction is intentional because a damage-driven portal source may stop emitting buffers while the selected desktop is static.

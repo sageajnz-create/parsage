@@ -37,7 +37,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
 }) => {
   const [roomCode, setRoomCode] = useState('');
   const [guestName, setGuestName] = useState('Buddy');
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1.0);
   const [showHud, setShowHud] = useState(true);
 

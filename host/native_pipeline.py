@@ -202,12 +202,22 @@ def run_webrtc_peer(args):
                 "! video/x-h264,profile=main ! h264parse "
             )
         description = chain + (
+            "! identity name=peer_encoded signal-handoffs=true "
             "! rtph264pay pt=96 config-interval=-1 aggregate-mode=zero-latency "
             "! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 "
             "! webrtcbin name=sender bundle-policy=max-bundle"
         )
         pipeline = Gst.parse_launch(description)
         sender = pipeline.get_by_name("sender")
+        encoded = pipeline.get_by_name("peer_encoded")
+        peer_stats = {"encoded_frames": 0}
+
+        def encoded_handoff(_identity, _buffer):
+            peer_stats["encoded_frames"] += 1
+            if peer_stats["encoded_frames"] % 10 == 0:
+                emit_peer_message({"type": "stats", **peer_stats})
+
+        encoded.connect("handoff", encoded_handoff)
 
         sender.connect("on-ice-candidate", lambda _element, mline, candidate: emit_peer_message({
             "type": "ice-candidate", "sdpMLineIndex": mline, "candidate": candidate

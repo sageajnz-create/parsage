@@ -27,8 +27,8 @@ Implementation note: signaling sessions currently have a 15-second reconnect gra
 
 ## P1 — Gaming-quality media
 
-- [ ] Native PipeWire capture backend integrated into live sessions (standalone portal capture is verified)
-- [ ] Explicit VA-API/NVENC encoding in live sessions (VA-API benchmark is verified at 1080p60)
+- [x] Native PipeWire capture backend integrated into live sessions (single-viewer portal path verified in Chromium)
+- [x] Explicit VA-API encoding in live sessions (1920×1080 portal frames decoded in Chromium)
 - [ ] H.264 baseline plus negotiated HEVC/AV1 capability fallback
 - [ ] Pacing, bitrate adaptation, keyframe recovery, and packet-loss handling
 - [ ] Hardware decode path and frame-present timing
