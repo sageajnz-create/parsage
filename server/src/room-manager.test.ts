@@ -79,6 +79,17 @@ test('requires host approval before assigning a protected slot', () => {
   assert.equal(rooms.canExchangeRtc('host', 'guest'), true);
 });
 
+test('does not let a joining peer claim the host role', () => {
+  const rooms = new RoomManager();
+  rooms.registerClient('host', socket());
+  rooms.registerClient('guest', socket());
+  const { roomCode } = rooms.createRoom('host', 'Host', { requireApproval: false });
+
+  rooms.joinRoom('guest', roomCode, 'Guest', 'host');
+  assert.equal(rooms.getClient('guest')?.role, 'client');
+  assert.equal(rooms.getRoom(roomCode)?.hostId, 'host');
+});
+
 test('blocks RTC messages between unrelated rooms', () => {
   const rooms = new RoomManager();
   rooms.registerClient('host-a', socket());
@@ -103,6 +114,25 @@ test('prevents guests from changing permissions or kicking peers', () => {
   }), false);
   assert.equal(rooms.kickPeer('guest', 'target'), false);
   assert.equal(targetSocket.closed, false);
+});
+
+test('prevents hosts from administering peers in another room', () => {
+  const rooms = new RoomManager();
+  const foreignSocket = new FakeSocket();
+  rooms.registerClient('host-a', socket());
+  rooms.registerClient('host-b', socket());
+  rooms.registerClient('foreign-peer', foreignSocket as unknown as WebSocket);
+  rooms.createRoom('host-a', 'Host A', { requireApproval: false });
+  const { roomCode: roomB } = rooms.createRoom('host-b', 'Host B', { requireApproval: true });
+  rooms.joinRoom('foreign-peer', roomB, 'Foreign Peer');
+
+  const permissions = { gamepad: false, mouse: true, keyboard: true, audio: false };
+  assert.equal(rooms.approvePeer('host-a', 'foreign-peer', 0), false);
+  assert.equal(rooms.updatePermissions('host-a', 'foreign-peer', permissions), false);
+  assert.equal(rooms.kickPeer('host-a', 'foreign-peer'), false);
+  assert.equal(rooms.getClient('foreign-peer')?.approved, false);
+  assert.equal(rooms.getClient('foreign-peer')?.permissions.gamepad, true);
+  assert.equal(foreignSocket.closed, false);
 });
 
 test('releases a slot and removes the room when its host leaves', () => {

@@ -80,6 +80,20 @@ parsage/
 └── bin/          # Unified CLI binary runner
 ```
 
+### Development setup
+
+Use Node.js 22 or newer and Python 3.10 or newer. Install the locked JavaScript dependencies and run the portable test suite with:
+
+```bash
+cd server && npm ci
+cd ../web && npm ci
+cd .. && npm test
+```
+
+The server tests and web build run on Linux, macOS, and Windows. Host tests can exercise pipeline construction without GStreamer; live PipeWire capture and native WebRTC commands require the Linux packages declared by the Debian package in `packaging/build_deb.py`.
+
+See [Development plan](docs/DEVELOPMENT_PLAN.md) for the prioritized delivery sequence and acceptance gates.
+
 ---
 
 ## 📜 License & Credits

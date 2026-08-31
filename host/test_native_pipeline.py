@@ -1,10 +1,12 @@
 import unittest
+from unittest.mock import patch
 
 from native_pipeline import (
     build_encoding_chain,
     build_pipeline,
     build_webrtc_loopback_pipeline,
     capabilities,
+    require_native_runtime,
 )
 
 
@@ -28,6 +30,18 @@ class NativePipelineTests(unittest.TestCase):
         self.assertIn("pipewire_source", report)
         self.assertIn("webrtc_transport", report)
         self.assertIn("recommended_encoder", report)
+
+    def test_probe_degrades_cleanly_without_native_runtime(self):
+        with patch("native_pipeline.Gst", None):
+            report = capabilities()
+        self.assertFalse(report["pipewire_source"])
+        self.assertFalse(report["webrtc_transport"])
+        self.assertIsNone(report["recommended_encoder"])
+
+    def test_native_commands_explain_missing_runtime(self):
+        with patch("native_pipeline.Gst", None):
+            with self.assertRaisesRegex(RuntimeError, "Native media runtime unavailable"):
+                require_native_runtime()
 
     def test_webrtc_loopback_packetizes_and_receives_h264(self):
         pipeline = build_webrtc_loopback_pipeline(7, "path", "42", "h264_vaapi", 25_000, 60)

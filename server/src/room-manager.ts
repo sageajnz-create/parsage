@@ -164,9 +164,10 @@ export class RoomManager {
     const room = this.rooms.get(roomCode.trim().toUpperCase());
     if (!room) return { success: false, error: `Room "${roomCode}" does not exist or has expired.` };
 
+    const safeRole: PeerRole = role === 'agent' ? 'agent' : 'client';
     client.roomCode = room.roomCode;
     client.name = peerName;
-    client.role = role;
+    client.role = safeRole;
     const identityWasApproved = client.authUserId
       ? this.approvedIdentities.get(room.roomCode)?.has(client.authUserId) === true
       : false;
@@ -174,7 +175,7 @@ export class RoomManager {
     client.joinedAt = Date.now();
 
     let assignedSlot: number | null = null;
-    if (role === 'client' && client.approved) {
+    if (safeRole === 'client' && client.approved) {
       const freeSlotIndex = room.slots.findIndex(s => s === null);
       if (freeSlotIndex !== -1) {
         room.slots[freeSlotIndex] = peerId;
@@ -210,7 +211,9 @@ export class RoomManager {
     if (!room || room.hostId !== hostId) return false;
 
     const target = this.clients.get(targetPeerId);
-    if (!target) return false;
+    if (!target || target.roomCode !== room.roomCode || !room.peers.some(peer => peer.id === targetPeerId)) {
+      return false;
+    }
 
     target.approved = true;
     if (target.authUserId) {
@@ -296,7 +299,9 @@ export class RoomManager {
     if (!room || room.hostId !== hostId) return false;
 
     const target = this.clients.get(targetPeerId);
-    if (!target) return false;
+    if (!target || target.roomCode !== room.roomCode || !room.peers.some(peer => peer.id === targetPeerId)) {
+      return false;
+    }
 
     target.permissions = { ...permissions };
     const peer = room.peers.find(p => p.id === targetPeerId);
@@ -314,7 +319,7 @@ export class RoomManager {
     if (!room || room.hostId !== hostId) return false;
 
     const target = this.clients.get(targetPeerId);
-    if (target) {
+    if (target && target.roomCode === room.roomCode && room.peers.some(peer => peer.id === targetPeerId)) {
       if (target.authUserId) this.approvedIdentities.get(room.roomCode)?.delete(target.authUserId);
       this.sendToPeer(targetPeerId, { type: 'error', message: 'You have been disconnected by the host.' });
       target.ws.close(1000, 'Kicked by host');

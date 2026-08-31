@@ -67,6 +67,11 @@ function isSameOrigin(req: http.IncomingMessage): boolean {
   return origin === `http://${req.headers.host}` || origin === `https://${req.headers.host}`;
 }
 
+function isAllowedWebSocketOrigin(origin: string | undefined, host: string | undefined): boolean {
+  if (!origin) return true;
+  return origin === `http://${host}` || origin === `https://${host}`;
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -252,7 +257,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Create WebSocket Server
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
+const verifyWebSocketClient: WebSocket.VerifyClientCallbackSync = ({ origin, req }) => (
+  isAllowedWebSocketOrigin(origin, req.headers.host)
+);
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: 64 * 1024,
+  verifyClient: verifyWebSocketClient,
+});
 let nextClientId = 1;
 const reconnectGraceMs = 15_000;
 const reconnectTokens = new ReconnectRegistry();
@@ -353,7 +366,8 @@ wss.on('connection', (ws: WebSocket, req) => {
           }
           if (typeof msg.roomCode !== 'string' || typeof msg.name !== 'string') break;
           msg.name = authProfile?.name || msg.name.trim().slice(0, 64) || 'Guest';
-          const result = roomManager.joinRoom(clientId, msg.roomCode, msg.name, msg.role);
+          const role = msg.role === 'agent' ? 'agent' : 'client';
+          const result = roomManager.joinRoom(clientId, msg.roomCode, msg.name, role);
           if (result.success && result.state) {
             console.log(`[Parsage] Peer "${msg.name}" (${clientId}) joined room ${result.state.roomCode}`);
             ws.send(JSON.stringify({

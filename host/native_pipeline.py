@@ -8,21 +8,43 @@ import sys
 import threading
 import time
 
-import gi
+try:
+    import gi
 
-gi.require_version("Gst", "1.0")
-gi.require_version("GstSdp", "1.0")
-gi.require_version("GstWebRTC", "1.0")
-gi.require_version("Xdp", "1.0")
-from gi.repository import GLib, Gst, GstSdp, GstWebRTC, Xdp
+    gi.require_version("Gst", "1.0")
+    gi.require_version("GstSdp", "1.0")
+    gi.require_version("GstWebRTC", "1.0")
+    gi.require_version("Xdp", "1.0")
+    from gi.repository import GLib, Gst, GstSdp, GstWebRTC, Xdp
+except (ImportError, ValueError) as error:
+    # Keep pipeline construction and capability probing available on developer
+    # machines that do not have the Linux multimedia stack installed.
+    GLib = Gst = GstSdp = GstWebRTC = Xdp = None
+    NATIVE_IMPORT_ERROR = error
+else:
+    NATIVE_IMPORT_ERROR = None
+
+
+NATIVE_ERRORS = (RuntimeError,) if GLib is None else (RuntimeError, GLib.Error)
+
+
+def require_native_runtime():
+    if all(component is not None for component in (GLib, Gst, GstSdp, GstWebRTC, Xdp)):
+        return
+    detail = f" ({NATIVE_IMPORT_ERROR})" if NATIVE_IMPORT_ERROR else ""
+    raise RuntimeError(
+        "Native media runtime unavailable. Install PyGObject, GStreamer, "
+        f"GstSdp, GstWebRTC, and libportal GObject bindings{detail}."
+    )
 
 
 def element_available(name):
-    return Gst.ElementFactory.find(name) is not None
+    return Gst is not None and Gst.ElementFactory.find(name) is not None
 
 
 def capabilities():
-    Gst.init(None)
+    if Gst is not None:
+        Gst.init(None)
     encoders = {
         "h264_vaapi": element_available("vah264enc"),
         "hevc_vaapi": element_available("vah265enc"),
@@ -45,6 +67,7 @@ def capabilities():
 
 class ScreenCastSession:
     def __init__(self):
+        require_native_runtime()
         self.portal = Xdp.Portal.new()
         self.session = None
         self.fd = None
@@ -160,6 +183,7 @@ def emit_peer_message(message):
 
 
 def parse_session_description(kind, sdp_text):
+    require_native_runtime()
     result, message = GstSdp.SDPMessage.new()
     if result != GstSdp.SDPResult.OK:
         raise RuntimeError("Could not allocate an SDP message")
@@ -175,6 +199,7 @@ def parse_session_description(kind, sdp_text):
 
 def run_webrtc_peer(args):
     """Run one native H.264 sender controlled by newline-delimited JSON on stdio."""
+    require_native_runtime()
     caps = capabilities()
     encoder = (
         "h264_software" if args.test_source else
@@ -300,6 +325,7 @@ def run_webrtc_peer(args):
 
 
 def run_benchmark(args):
+    require_native_runtime()
     caps = capabilities()
     encoder = args.encoder if args.encoder != "auto" else caps["recommended_encoder"]
     if not encoder or not caps["encoders"].get(encoder):
@@ -354,6 +380,7 @@ def run_benchmark(args):
 
 
 def run_webrtc_loopback(args):
+    require_native_runtime()
     caps = capabilities()
     encoder = (
         "h264_software" if args.test_source else
@@ -514,6 +541,6 @@ def main():
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (RuntimeError, GLib.Error) as error:
+    except NATIVE_ERRORS as error:
         print(f"native pipeline error: {error}", file=sys.stderr)
         raise SystemExit(1)

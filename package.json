@@ -9,7 +9,7 @@
     "dev:web": "cd web && npm run dev",
     "build": "npm run build:web && cd server && npm run build",
     "build:web": "cd web && npm run build",
-    "test": "cd server && npm test && cd ../web && npm run build && cd .. && python3 -m unittest discover -s host -p 'test_*.py'",
+    "test": "cd server && npm test && cd ../web && npm run build && cd .. && node scripts/test-host.mjs",
     "test:native-browser": "npm run build && node scripts/test-native-browser.mjs",
     "test:native-portal": "npm run build && node scripts/test-native-browser.mjs --portal",
     "start": "node server/dist/index.js",

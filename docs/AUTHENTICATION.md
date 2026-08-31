@@ -26,5 +26,6 @@ Restart Parsage after changing the file. Use `COOKIE_SECURE=true` behind HTTPS i
 - Missing configuration disables the Google button instead of creating a fake identity.
 - Invalid or unverified Google credentials return HTTP 401 and create no session.
 - When `REQUIRE_AUTH=true`, anonymous WebSocket clients cannot host or join rooms.
+- Browser WebSocket connections must come from the same origin as the signaling server; native clients without an `Origin` header remain supported.
 - Google identities determine the signaling display name; clients cannot impersonate another name.
 - Logout invalidates the server session and expires its cookie.
