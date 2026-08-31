@@ -357,6 +357,10 @@ wss.on('connection', (ws: WebSocket, req) => {
             ws.send(JSON.stringify({ type: 'error', message: 'Sign in is required to host a room.' }));
             break;
           }
+          if (roomManager.getClient(clientId)?.roomCode) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Leave the current room before hosting another.' }));
+            break;
+          }
           if (typeof msg.name !== 'string' || msg.name.trim().length === 0) break;
           msg.name = authProfile?.name || msg.name.trim().slice(0, 64);
           const { roomCode, state } = roomManager.createRoom(clientId, msg.name, msg.settings);
@@ -373,6 +377,10 @@ wss.on('connection', (ws: WebSocket, req) => {
         case 'join-room': {
           if (REQUIRE_AUTH && !authProfile) {
             ws.send(JSON.stringify({ type: 'error', message: 'Sign in is required to join a room.' }));
+            break;
+          }
+          if (roomManager.getClient(clientId)?.roomCode) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Leave the current room before joining another.' }));
             break;
           }
           if (now - joinWindowStartedAt >= 60_000) {

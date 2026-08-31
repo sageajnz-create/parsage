@@ -25,6 +25,12 @@ const REGGAE_WORDS = [
   'LION', 'JAM', 'GROOVE', 'SOLAR', 'CHILL', 'BEAT', 'SKANK', 'MELODY'
 ];
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const DEFAULT_PERMISSIONS: PeerInfo['permissions'] = {
+  gamepad: true,
+  mouse: false,
+  keyboard: false,
+  audio: true
+};
 
 export class RoomManager {
   private rooms: Map<string, RoomState> = new Map();
@@ -52,12 +58,7 @@ export class RoomManager {
       slot: null,
       approved: true,
       authUserId,
-      permissions: {
-        gamepad: true,
-        mouse: false,
-        keyboard: false,
-        audio: true
-      },
+      permissions: { ...DEFAULT_PERMISSIONS },
       joinedAt: Date.now()
     };
     this.clients.set(id, client);
@@ -100,6 +101,15 @@ export class RoomManager {
           type: 'error',
           message: 'Host has ended the streaming session.'
         }, id);
+        for (const peer of room.peers) {
+          const participant = this.clients.get(peer.id);
+          if (!participant) continue;
+          participant.roomCode = null;
+          participant.role = 'client';
+          participant.slot = null;
+          participant.approved = true;
+          participant.permissions = { ...DEFAULT_PERMISSIONS };
+        }
         this.rooms.delete(roomCode);
         this.approvedIdentities.delete(roomCode);
       } else {
@@ -123,6 +133,7 @@ export class RoomManager {
   ): { roomCode: string; state: RoomState } {
     const client = this.clients.get(hostId);
     if (!client) throw new Error('Host client not registered');
+    if (client.roomCode) throw new Error('Client already belongs to a room');
 
     const roomCode = this.generateRoomCode();
     client.roomCode = roomCode;
@@ -160,6 +171,7 @@ export class RoomManager {
   ): { success: boolean; state?: RoomState; error?: string } {
     const client = this.clients.get(peerId);
     if (!client) return { success: false, error: 'Client not found' };
+    if (client.roomCode) return { success: false, error: 'Client already belongs to a room' };
 
     const room = this.rooms.get(roomCode.trim().toUpperCase());
     if (!room) return { success: false, error: `Room "${roomCode}" does not exist or has expired.` };

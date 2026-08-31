@@ -90,6 +90,22 @@ test('does not let a joining peer claim the host role', () => {
   assert.equal(rooms.getRoom(roomCode)?.hostId, 'host');
 });
 
+test('keeps each client in exactly one room', () => {
+  const rooms = new RoomManager();
+  rooms.registerClient('host-a', socket());
+  rooms.registerClient('host-b', socket());
+  rooms.registerClient('guest', socket());
+  const { roomCode: roomA } = rooms.createRoom('host-a', 'Host A', { requireApproval: false });
+  const { roomCode: roomB } = rooms.createRoom('host-b', 'Host B', { requireApproval: false });
+
+  assert.equal(rooms.joinRoom('guest', roomA, 'Guest').success, true);
+  assert.equal(rooms.joinRoom('guest', roomB, 'Guest').success, false);
+  assert.throws(() => rooms.createRoom('guest', 'Guest Host'), /already belongs/);
+  assert.equal(rooms.getClient('guest')?.roomCode, roomA);
+  assert.equal(rooms.getRoom(roomA)?.peers.filter(peer => peer.id === 'guest').length, 1);
+  assert.equal(rooms.getRoom(roomB)?.peers.length, 0);
+});
+
 test('blocks RTC messages between unrelated rooms', () => {
   const rooms = new RoomManager();
   rooms.registerClient('host-a', socket());
@@ -141,12 +157,19 @@ test('releases a slot and removes the room when its host leaves', () => {
   rooms.registerClient('guest', socket());
   const { roomCode } = rooms.createRoom('host', 'Host', { requireApproval: false });
   rooms.joinRoom('guest', roomCode, 'Guest');
+  rooms.updatePermissions('host', 'guest', {
+    gamepad: true, mouse: true, keyboard: true, audio: true
+  });
 
   assert.equal(rooms.releaseSlot('guest', 0), true);
   assert.equal(rooms.getRoom(roomCode)?.slots[0], null);
   const removed = rooms.removeClient('host');
   assert.equal(removed.wasHost, true);
   assert.equal(rooms.getRoom(roomCode), undefined);
+  assert.equal(rooms.getClient('guest')?.roomCode, null);
+  assert.equal(rooms.getClient('guest')?.role, 'client');
+  assert.equal(rooms.getClient('guest')?.slot, null);
+  assert.equal(rooms.getClient('guest')?.permissions.mouse, false);
 });
 
 test('remembers approval for the same verified identity across reconnects', () => {

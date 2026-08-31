@@ -158,7 +158,11 @@ test('approval gates RTC, cross-room administration, and reconnect resumption', 
   assert.match(preApprovalError.message, /not authorized/);
 
   outsider.client.send({ type: 'create-room', name: 'Other Host', settings: { requireApproval: false } });
-  await outsider.client.waitFor('room-created');
+  const outsiderRoom = await outsider.client.waitFor('room-created');
+  guest.client.send({ type: 'join-room', roomCode: outsiderRoom.roomCode, name: 'Guest Again' });
+  assert.match((await guest.client.waitFor('error')).message, /Leave the current room/);
+  guest.client.send({ type: 'create-room', name: 'Guest Host' });
+  assert.match((await guest.client.waitFor('error')).message, /Leave the current room/);
   outsider.client.send({ type: 'approve-peer', peerId: guestId, slot: 0 });
   outsider.client.send({
     type: 'update-permissions',
