@@ -14,7 +14,7 @@ let host;
 let debug;
 
 function browserExecutable() {
-  const configured = process.env.BROWSER_BIN;
+  const configured = process.env.BROWSER_BIN || process.env.CHROME_BIN;
   const candidates = process.platform === 'win32'
     ? [
         configured,
@@ -23,7 +23,14 @@ function browserExecutable() {
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       ]
-    : [configured, '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+    : [
+        configured,
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/opt/google/chrome/chrome',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+      ];
   const executable = candidates.find(candidate => candidate && existsSync(candidate));
   if (!executable) throw new Error('No supported Chromium browser found. Set BROWSER_BIN to its executable.');
   return executable;
@@ -223,6 +230,8 @@ try {
     '--headless=new',
     '--no-sandbox',
     '--disable-gpu',
+    '--disable-dev-shm-usage',
+    '--remote-debugging-address=127.0.0.1',
     `--remote-debugging-port=${debuggingPort}`,
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -230,7 +239,11 @@ try {
   let browserErrors = '';
   browser.stderr.on('data', chunk => { browserErrors += chunk.toString(); });
 
-  const pagesResponse = await waitForHttp(`http://127.0.0.1:${debuggingPort}/json`);
+  const pagesResponse = await waitForHttp(`http://127.0.0.1:${debuggingPort}/json`).catch(error => {
+    throw new Error(
+      `${error.message}; browser exit=${browser.exitCode}; stderr=${browserErrors.slice(-2000)}`,
+    );
+  });
   const pages = await pagesResponse.json();
   const page = pages.find(candidate => candidate.type === 'page' && candidate.webSocketDebuggerUrl);
   if (!page) throw new Error(`No Chromium debugging page found: ${browserErrors}`);
