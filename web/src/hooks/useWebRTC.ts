@@ -36,6 +36,7 @@ export function useWebRTC() {
   const iceRestartTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const iceRestartAttempts = useRef<Map<string, number>>(new Map());
   const pendingReconnectToken = useRef<string | null>(null);
+  const signalingSessionReady = useRef(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shuttingDown = useRef(false);
   const nativeTargetPeerId = useRef<string | null>(null);
@@ -114,12 +115,10 @@ export function useWebRTC() {
     ws.onopen = () => {
       setWsConnected(true);
       setErrorMsg(null);
-      if (roomStateRef.current) {
-        peerConnections.current.forEach((_pc, peerId) => restartPeerIce(peerId, 'signaling reconnected'));
-      }
     };
 
     ws.onclose = () => {
+      signalingSessionReady.current = false;
       setWsConnected(false);
       if (!shuttingDown.current) reconnectTimer.current = setTimeout(connectSignaling, 2000);
     };
@@ -237,6 +236,7 @@ export function useWebRTC() {
   };
 
   const restartPeerIce = async (targetPeerId: string, reason: string) => {
+    if (!signalingSessionReady.current) return;
     const pc = peerConnections.current.get(targetPeerId);
     if (!pc || pc.connectionState === 'closed') return;
     const attempts = (iceRestartAttempts.current.get(targetPeerId) || 0) + 1;
@@ -311,9 +311,12 @@ export function useWebRTC() {
         pendingReconnectToken.current = msg.token;
         const savedToken = sessionStorage.getItem('parsage-reconnect-token');
         if (savedToken && savedToken !== msg.token && wsRef.current?.readyState === WebSocket.OPEN) {
+          signalingSessionReady.current = false;
           wsRef.current.send(JSON.stringify({ type: 'resume-session', token: savedToken }));
         } else {
           sessionStorage.setItem('parsage-reconnect-token', msg.token);
+          pendingReconnectToken.current = null;
+          signalingSessionReady.current = true;
         }
         break;
       }
@@ -323,6 +326,7 @@ export function useWebRTC() {
           sessionStorage.setItem('parsage-reconnect-token', pendingReconnectToken.current);
           pendingReconnectToken.current = null;
         }
+        signalingSessionReady.current = true;
         setCurrentPeerId(msg.peerId);
         setRoomState(msg.state);
         setIsHost(msg.isHost);
@@ -339,6 +343,15 @@ export function useWebRTC() {
           sessionStorage.setItem('parsage-reconnect-token', pendingReconnectToken.current);
           pendingReconnectToken.current = null;
         }
+        signalingSessionReady.current = true;
+        peerConnections.current.forEach(pc => pc.close());
+        peerConnections.current.clear();
+        dataChannels.current.clear();
+        iceRestartTimers.current.forEach(clearTimeout);
+        iceRestartTimers.current.clear();
+        iceRestartAttempts.current.clear();
+        setRemoteStream(null);
+        setAssignedSlot(null);
         setRoomState(null);
         setCurrentPeerId(null);
         setIsHost(false);
@@ -457,6 +470,7 @@ export function useWebRTC() {
     shuttingDown.current = false;
     connectSignaling();
     const restartAfterNetworkChange = () => {
+      if (!signalingSessionReady.current) return;
       peerConnections.current.forEach((_pc, peerId) => restartPeerIce(peerId, 'network changed'));
     };
     window.addEventListener('online', restartAfterNetworkChange);

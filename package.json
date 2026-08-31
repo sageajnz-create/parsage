@@ -12,6 +12,7 @@
     "test": "cd server && npm test && cd ../web && npm run build && cd .. && node scripts/test-host.mjs",
     "test:native-browser": "npm run build && node scripts/test-native-browser.mjs",
     "test:native-portal": "npm run build && node scripts/test-native-browser.mjs --portal",
+    "test:browser-reconnect": "npm run build && node scripts/test-browser-reconnect.mjs",
     "start": "node server/dist/index.js",
     "host": "python3 host/parsage_host.py"
   }

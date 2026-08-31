@@ -25,3 +25,4 @@ jobs:
       - run: npm ci
         working-directory: web
       - run: npm test
+      - run: npm run test:browser-reconnect

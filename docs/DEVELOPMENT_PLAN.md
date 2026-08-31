@@ -19,7 +19,7 @@ Gate: a clean install passes server tests, the production web build, and host un
 - [x] Reject cross-room host administration, cross-room RTC forwarding, hostile browser origins, and client-supplied host roles.
 - [x] Automate an authenticated host/viewer session covering login cookies, identity-bound names, approval, unauthorized signaling, and reconnect ownership.
 - [x] Enforce single-room membership and clear guest roles, slots, and permissions when a host ends a room.
-- Add a forced reconnect/ICE-restart scenario and assert the room and permissions survive.
+- [x] Force a browser signaling disconnect and verify peer resumption, reconnect-token rotation, retained RTC authorization, and an `iceRestart` offer.
 - Run a TURN-only restrictive-NAT test in a controlled environment.
 - Record a 30-minute WAN soak result with disconnect, memory, and error counts.
 
