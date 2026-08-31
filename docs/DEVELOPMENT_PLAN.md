@@ -17,7 +17,7 @@ Gate: a clean install passes server tests, the production web build, and host un
 
 - [x] Add a live local signaling gate for approval, RTC authorization, reconnect state, and reconnect-token replay.
 - [x] Reject cross-room host administration, cross-room RTC forwarding, hostile browser origins, and client-supplied host roles.
-- Automate an authenticated host/viewer session that covers approval and unauthorized signaling.
+- [x] Automate an authenticated host/viewer session covering login cookies, identity-bound names, approval, unauthorized signaling, and reconnect ownership.
 - Add a forced reconnect/ICE-restart scenario and assert the room and permissions survive.
 - Run a TURN-only restrictive-NAT test in a controlled environment.
 - Record a 30-minute WAN soak result with disconnect, memory, and error counts.

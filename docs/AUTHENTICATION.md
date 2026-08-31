@@ -28,4 +28,5 @@ Restart Parsage after changing the file. Use `COOKIE_SECURE=true` behind HTTPS i
 - When `REQUIRE_AUTH=true`, anonymous WebSocket clients cannot host or join rooms.
 - Browser WebSocket connections must come from the same origin as the signaling server; native clients without an `Origin` header remain supported.
 - Google identities determine the signaling display name; clients cannot impersonate another name.
+- Reconnect credentials can only be claimed by the same verified Google subject that owned the interrupted session.
 - Logout invalidates the server session and expires its cookie.
