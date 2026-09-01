@@ -408,7 +408,13 @@ def run_webrtc_peer(args):
             "type": "connection-state", "state": element.get_property("connection-state").value_nick
         }))
 
+        data_channels = []
+
         def attach_data_channel(channel):
+            if channel and channel not in data_channels:
+                data_channels.append(channel)
+            if not channel:
+                return
             def on_message(_channel, payload):
                 try:
                     packet = json.loads(payload)
@@ -419,6 +425,17 @@ def run_webrtc_peer(args):
                     return
                 emit_peer_message({"type": "input", "packet": packet})
             channel.connect("on-message-string", on_message)
+
+        def send_on_channels(payload):
+            raw = json.dumps(payload)
+            for channel in list(data_channels):
+                try:
+                    if hasattr(channel, "send_string"):
+                        channel.send_string(raw)
+                    else:
+                        channel.emit("send-string", raw)
+                except Exception:
+                    pass
 
         def on_data_channel(_element, channel):
             attach_data_channel(channel)
@@ -472,6 +489,8 @@ def run_webrtc_peer(args):
                     sender.emit("add-ice-candidate", int(message.get("sdpMLineIndex", 0)), message["candidate"])
                 elif message.get("type") in {"adapt", "media-feedback", "request-keyframe"}:
                     apply_adaptation(message)
+                elif message.get("type") == "rumble":
+                    send_on_channels(message)
                 elif message.get("type") == "stop":
                     loop.quit()
             except Exception as error:

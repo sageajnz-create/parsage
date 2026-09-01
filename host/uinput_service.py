@@ -14,12 +14,26 @@ import socket
 import json
 import signal
 import threading
+import ctypes
+import select
+
+_HOST_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HOST_DIR not in sys.path:
+    sys.path.insert(0, _HOST_DIR)
+
+from input_parity import InjectedInput, rumble_from_ff
 
 # Linux Input Event Constants
 EV_SYN = 0x00
 EV_KEY = 0x01
 EV_REL = 0x02
 EV_ABS = 0x03
+EV_FF = 0x15
+EV_UINPUT = 0x0101
+UI_FF_UPLOAD = 1
+UI_FF_ERASE = 2
+FF_RUMBLE = 0x50
+FF_GAIN = 0x60
 
 SYN_REPORT = 0
 
@@ -65,8 +79,111 @@ UI_SET_EVBIT  = 0x40045564
 UI_SET_KEYBIT = 0x40045565
 UI_SET_RELBIT = 0x40045566
 UI_SET_ABSBIT = 0x40045567
+UI_SET_FFBIT  = 0x4004556b
 UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
+FF_EFFECTS_MAX = 16
+
+
+def _ioc(direction, type_char, number, size):
+    return (direction << 30) | (size << 16) | (ord(type_char) << 8) | number
+
+
+class _FfReplay(ctypes.Structure):
+    _fields_ = [("length", ctypes.c_uint16), ("delay", ctypes.c_uint16)]
+
+
+class _FfTrigger(ctypes.Structure):
+    _fields_ = [("button", ctypes.c_uint16), ("interval", ctypes.c_uint16)]
+
+
+class _FfEnvelope(ctypes.Structure):
+    _fields_ = [
+        ("attack_length", ctypes.c_uint16),
+        ("attack_level", ctypes.c_uint16),
+        ("fade_length", ctypes.c_uint16),
+        ("fade_level", ctypes.c_uint16),
+    ]
+
+
+class _FfConstant(ctypes.Structure):
+    _fields_ = [("level", ctypes.c_int16), ("envelope", _FfEnvelope)]
+
+
+class _FfRamp(ctypes.Structure):
+    _fields_ = [("start_level", ctypes.c_int16), ("end_level", ctypes.c_int16), ("envelope", _FfEnvelope)]
+
+
+class _FfCondition(ctypes.Structure):
+    _fields_ = [
+        ("right_saturation", ctypes.c_uint16),
+        ("left_saturation", ctypes.c_uint16),
+        ("right_coeff", ctypes.c_int16),
+        ("left_coeff", ctypes.c_int16),
+        ("deadband", ctypes.c_uint16),
+        ("center", ctypes.c_int16),
+    ]
+
+
+class _FfPeriodic(ctypes.Structure):
+    _fields_ = [
+        ("waveform", ctypes.c_uint16),
+        ("period", ctypes.c_uint16),
+        ("magnitude", ctypes.c_int16),
+        ("offset", ctypes.c_int16),
+        ("phase", ctypes.c_uint16),
+        ("envelope", _FfEnvelope),
+        ("custom_len", ctypes.c_uint32),
+        ("custom_data", ctypes.POINTER(ctypes.c_int16)),
+    ]
+
+
+class _FfRumble(ctypes.Structure):
+    _fields_ = [("strong_magnitude", ctypes.c_uint16), ("weak_magnitude", ctypes.c_uint16)]
+
+
+class _FfUnion(ctypes.Union):
+    _fields_ = [
+        ("constant", _FfConstant),
+        ("ramp", _FfRamp),
+        ("periodic", _FfPeriodic),
+        ("condition", _FfCondition * 2),
+        ("rumble", _FfRumble),
+    ]
+
+
+class _FfEffect(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_uint16),
+        ("id", ctypes.c_int16),
+        ("direction", ctypes.c_uint16),
+        ("trigger", _FfTrigger),
+        ("replay", _FfReplay),
+        ("u", _FfUnion),
+    ]
+
+
+class _UinputFfUpload(ctypes.Structure):
+    _fields_ = [
+        ("request_id", ctypes.c_uint32),
+        ("retval", ctypes.c_int32),
+        ("effect", _FfEffect),
+        ("old", _FfEffect),
+    ]
+
+
+class _UinputFfErase(ctypes.Structure):
+    _fields_ = [
+        ("request_id", ctypes.c_uint32),
+        ("retval", ctypes.c_int32),
+        ("effect_id", ctypes.c_uint32),
+    ]
+
+
+UI_BEGIN_FF_UPLOAD = _ioc(3, "U", 200, ctypes.sizeof(_UinputFfUpload))
+UI_END_FF_UPLOAD = _ioc(1, "U", 201, ctypes.sizeof(_UinputFfUpload))
+UI_BEGIN_FF_ERASE = _ioc(3, "U", 202, ctypes.sizeof(_UinputFfErase))
+UI_END_FF_ERASE = _ioc(1, "U", 203, ctypes.sizeof(_UinputFfErase))
 
 # Standard W3C Gamepad Button Mapping to Linux Keycodes
 BUTTON_MAP = [
@@ -94,11 +211,12 @@ class VirtualGamepad:
         self.slot_index = slot_index
         self.fd = None
         self.name = f"Parsage Virtual Xbox Controller {slot_index + 1}"
+        self.ff_effects = {}
         self.create_device()
 
     def create_device(self):
         try:
-            self.fd = os.open('/dev/uinput', os.O_WRONLY | os.O_NONBLOCK)
+            self.fd = os.open('/dev/uinput', os.O_RDWR | os.O_NONBLOCK)
         except Exception as e:
             print(f"[UInput] Error opening /dev/uinput: {e}", file=sys.stderr)
             self.fd = None
@@ -108,6 +226,12 @@ class VirtualGamepad:
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_ABS)
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_SYN)
+        try:
+            fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_FF)
+            fcntl.ioctl(self.fd, UI_SET_FFBIT, FF_RUMBLE)
+            fcntl.ioctl(self.fd, UI_SET_FFBIT, FF_GAIN)
+        except OSError:
+            pass
 
         # Register buttons
         buttons = [
@@ -128,7 +252,7 @@ class VirtualGamepad:
         name_bytes = self.name.encode('utf-8').ljust(80, b'\x00')
         # Bus USB (3), Microsoft Vendor (0x045e), Xbox 360 Controller (0x028e), Version (0x0114)
         input_id = struct.pack('HHHH', 0x03, 0x045e, 0x028e, 0x0114)
-        ff_effects_max = struct.pack('i', 0)
+        ff_effects_max = struct.pack('i', FF_EFFECTS_MAX)
 
         absmax = [0] * 64
         absmin = [0] * 64
@@ -228,6 +352,48 @@ class VirtualGamepad:
         self.emit(EV_ABS, ABS_HAT0Y, dpad_y)
 
         self.sync()
+
+    def handle_ff_event(self, event_type, code, value):
+        """Return a rumble payload when the kernel plays an effect on this pad."""
+        if self.fd is None:
+            return None
+        if event_type == EV_UINPUT and code == UI_FF_UPLOAD:
+            upload = _UinputFfUpload()
+            upload.request_id = value
+            try:
+                fcntl.ioctl(self.fd, UI_BEGIN_FF_UPLOAD, upload)
+                effect = upload.effect
+                rumble = rumble_from_ff(
+                    effect.type,
+                    effect.u.rumble.strong_magnitude,
+                    effect.u.rumble.weak_magnitude,
+                    effect.replay.length,
+                )
+                self.ff_effects[effect.id] = rumble
+                upload.retval = 0
+                fcntl.ioctl(self.fd, UI_END_FF_UPLOAD, upload)
+            except OSError:
+                return None
+            return None
+        if event_type == EV_UINPUT and code == UI_FF_ERASE:
+            erase = _UinputFfErase()
+            erase.request_id = value
+            try:
+                fcntl.ioctl(self.fd, UI_BEGIN_FF_ERASE, erase)
+                self.ff_effects.pop(erase.effect_id, None)
+                erase.retval = 0
+                fcntl.ioctl(self.fd, UI_END_FF_ERASE, erase)
+            except OSError:
+                return None
+            return {"strong": 0.0, "weak": 0.0, "duration": 0}
+        if event_type == EV_FF:
+            if code == FF_GAIN:
+                return None
+            stored = self.ff_effects.get(code) or rumble_from_ff(FF_RUMBLE, 65535, 45875, 120)
+            if not value:
+                return {"strong": 0.0, "weak": 0.0, "duration": 0}
+            return stored
+        return None
 
     def destroy(self):
         if self.fd is not None:
@@ -347,36 +513,116 @@ class InputManager:
     def __init__(self, num_slots: int = 4):
         self.gamepads = [VirtualGamepad(i) for i in range(num_slots)]
         self.mouse_kbd = VirtualMouseKeyboard()
+        self.tracker = InjectedInput(num_slots)
         self.running = True
+        self.rumble_listeners = []
+        self._ff_thread = threading.Thread(target=self._ff_loop, daemon=True)
+        self._ff_thread.start()
 
-    def process_gamepad_packet(self, slot: int, buttons: int, axes: list):
-        if 0 <= slot < len(self.gamepads):
-            self.gamepads[slot].process_state(buttons, axes)
+    def on_rumble(self, listener):
+        self.rumble_listeners.append(listener)
+
+    def emit_rumble(self, slot, payload):
+        packet = self.tracker.rumble_for_slot(
+            slot,
+            payload.get("strong", 0),
+            payload.get("weak", 0),
+            payload.get("duration", 0),
+        )
+        if packet is None:
+            packet = {
+                "type": "rumble",
+                "slot": slot,
+                "strong": payload.get("strong", 0),
+                "weak": payload.get("weak", 0),
+                "duration": payload.get("duration", 0),
+                "padId": None,
+                "peerId": None,
+            }
+        for listener in list(self.rumble_listeners):
+            try:
+                listener(packet)
+            except Exception:
+                pass
+
+    def _apply_ops(self, ops):
+        for op in ops:
+            device = op.get("device")
+            if device == "gamepad":
+                slot = op.get("slot")
+                if isinstance(slot, int) and 0 <= slot < len(self.gamepads):
+                    self.gamepads[slot].process_state(op.get("buttons", 0), op.get("axes", [0, 0, 0, 0, 0, 0]))
+            elif device == "mouse":
+                action = op.get("action")
+                if action == "move":
+                    self.mouse_kbd.mouse_move(int(op.get("dx", 0)), int(op.get("dy", 0)))
+                elif action == "down":
+                    self.mouse_kbd.mouse_button(op.get("button", 0), True)
+                elif action == "up":
+                    self.mouse_kbd.mouse_button(op.get("button", 0), False)
+                elif action == "wheel":
+                    delta = int(op.get("deltaY", 0))
+                    self.mouse_kbd.mouse_wheel(-1 if delta > 0 else 1)
+            elif device == "keyboard":
+                self.mouse_kbd.key_event(op.get("keycode", 0), bool(op.get("pressed")))
+
+    def handle_packet(self, pkt, peer=None):
+        if not isinstance(pkt, dict):
+            return
+        peer_id = pkt.get("peerId") or (peer or {}).get("id") or "_anon"
+        self._apply_ops(self.tracker.apply(peer_id, pkt, peer))
+
+    def release_peer(self, peer_id):
+        self._apply_ops(self.tracker.release_peer(peer_id))
+
+    def release_all(self):
+        self._apply_ops(self.tracker.release_all())
+
+    def process_gamepad_packet(self, slot: int, buttons: int, axes: list, peer_id="_anon", pad_id=None):
+        self.handle_packet({
+            "type": "gamepad",
+            "slot": slot,
+            "buttons": buttons,
+            "axes": axes,
+            "peerId": peer_id,
+            "id": pad_id,
+        })
 
     def process_mouse_packet(self, data: dict):
-        action = data.get('action')
-        if action == 'move':
-            dx = int(data.get('dx', 0))
-            dy = int(data.get('dy', 0))
-            self.mouse_kbd.mouse_move(dx, dy)
-        elif action == 'down':
-            btn = data.get('button', 0)
-            self.mouse_kbd.mouse_button(btn, True)
-        elif action == 'up':
-            btn = data.get('button', 0)
-            self.mouse_kbd.mouse_button(btn, False)
-        elif action == 'wheel':
-            delta = int(data.get('deltaY', 0))
-            self.mouse_kbd.mouse_wheel(-1 if delta > 0 else 1)
+        self.handle_packet(data)
 
     def process_keyboard_packet(self, data: dict):
-        action = data.get('action')
-        keycode = data.get('keycode', 0)
-        if keycode > 0:
-            self.mouse_kbd.key_event(keycode, action == 'down')
+        self.handle_packet(data)
+
+    def _ff_loop(self):
+        while self.running:
+            fds = [pad.fd for pad in self.gamepads if pad.fd is not None]
+            if not fds:
+                time.sleep(0.05)
+                continue
+            try:
+                readable, _writable, _errors = select.select(fds, [], [], 0.25)
+            except (OSError, ValueError):
+                time.sleep(0.05)
+                continue
+            for fd in readable:
+                slot = next((index for index, pad in enumerate(self.gamepads) if pad.fd == fd), None)
+                if slot is None:
+                    continue
+                try:
+                    blob = os.read(fd, 24)
+                except OSError:
+                    continue
+                if len(blob) < 24:
+                    continue
+                _sec, _usec, event_type, code, value = struct.unpack("qqHHi", blob)
+                rumble = self.gamepads[slot].handle_ff_event(event_type, code, value)
+                if rumble:
+                    self.emit_rumble(slot, rumble)
 
     def shutdown(self):
         self.running = False
+        self.release_all()
         for gp in self.gamepads:
             gp.destroy()
         self.mouse_kbd.destroy()
@@ -391,36 +637,59 @@ def run_ipc_server(manager: InputManager, host='127.0.0.1', port=7778):
     server.bind((host, port))
     server.listen(5)
     print(f"[UInput IPC] Listening for input packets on {host}:{port}")
+    clients = []
+    clients_lock = threading.Lock()
+
+    def broadcast_rumble(packet):
+        payload = (json.dumps(packet) + "\n").encode("utf-8")
+        with clients_lock:
+            live = []
+            for conn in clients:
+                try:
+                    conn.sendall(payload)
+                    live.append(conn)
+                except OSError:
+                    try:
+                        conn.close()
+                    except OSError:
+                        pass
+            clients[:] = live
+
+    manager.on_rumble(broadcast_rumble)
 
     def handle_client(conn, addr):
+        with clients_lock:
+            clients.append(conn)
         buffer = ""
-        while manager.running:
-            try:
-                data = conn.recv(4096)
-                if not data:
+        try:
+            while manager.running:
+                try:
+                    data = conn.recv(4096)
+                    if not data:
+                        break
+                    buffer += data.decode('utf-8', errors='ignore')
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        if not line.strip():
+                            continue
+                        try:
+                            pkt = json.loads(line)
+                            if pkt.get("type") == "release":
+                                manager.handle_packet(pkt)
+                            elif pkt.get("type") in {"gamepad", "mouse", "keyboard"}:
+                                manager.handle_packet(pkt)
+                        except Exception:
+                            pass
+                except Exception:
                     break
-                buffer += data.decode('utf-8', errors='ignore')
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    if not line.strip():
-                        continue
-                    try:
-                        pkt = json.loads(line)
-                        pkt_type = pkt.get('type')
-                        if pkt_type == 'gamepad':
-                            slot = pkt.get('slot', 0)
-                            buttons = pkt.get('buttons', 0)
-                            axes = pkt.get('axes', [0, 0, 0, 0, 0, 0])
-                            manager.process_gamepad_packet(slot, buttons, axes)
-                        elif pkt_type == 'mouse':
-                            manager.process_mouse_packet(pkt)
-                        elif pkt_type == 'keyboard':
-                            manager.process_keyboard_packet(pkt)
-                    except Exception as e:
-                        pass
-            except Exception:
-                break
-        conn.close()
+        finally:
+            with clients_lock:
+                if conn in clients:
+                    clients.remove(conn)
+            try:
+                conn.close()
+            except OSError:
+                pass
 
     try:
         while manager.running:
@@ -430,6 +699,7 @@ def run_ipc_server(manager: InputManager, host='127.0.0.1', port=7778):
     except Exception:
         pass
     finally:
+        manager.release_all()
         server.close()
 
 

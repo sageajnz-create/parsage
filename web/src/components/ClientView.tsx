@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RoomState, ChatMessage, EmojiReaction } from '../types';
 import { useGamepad } from '../hooks/useGamepad';
+import { useRemoteInput } from '../hooks/useRemoteInput';
 import { useStats } from '../hooks/useStats';
 import { StatsOverlay } from './StatsOverlay';
 import { OverlayMenu } from './OverlayMenu';
 import { Users, Play, Maximize, Volume2, VolumeX, Gamepad2, Wifi, MessageSquare } from 'lucide-react';
+import { packetAllowed, selfPeer } from '../input/permissions';
+import { padIdentity } from '../input/controllerSlots';
+import { neutralGamepadPacket } from '../input/release';
 
 interface ClientViewProps {
   roomState: RoomState | null;
   remoteStream: MediaStream | null;
   assignedSlot: number | null;
+  currentPeerId: string | null;
   chatMessages: ChatMessage[];
   reactions: EmojiReaction[];
   onJoinRoom: (roomCode: string, name: string) => void;
@@ -27,6 +32,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
   roomState,
   remoteStream,
   assignedSlot,
+  currentPeerId,
   chatMessages,
   reactions,
   onJoinRoom,
@@ -48,10 +54,17 @@ export const ClientView: React.FC<ClientViewProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const { gamepads, activeGamepadIndex, packGamepadState } = useGamepad();
-  const activePad = gamepads.find(g => g.index === activeGamepadIndex) || gamepads[0];
+  const { activeGamepadIndex, packGamepadState } = useGamepad();
+  const viewer = selfPeer(roomState?.peers, currentPeerId);
 
   const stats = useStats(remoteStream, mediaPeerConnection, nativeLatency);
+
+  useRemoteInput({
+    enabled: Boolean(roomState && remoteStream),
+    peer: viewer,
+    videoRef,
+    onSendInput
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -70,67 +83,55 @@ export const ClientView: React.FC<ClientViewProps> = ({
     }
   }, [remoteStream, volume, muted]);
 
-  // 120Hz Real-Time Gamepad Dispatch Loop
+  // 120Hz Real-Time Gamepad Dispatch Loop — identity-stable across hotplug/reorder
   useEffect(() => {
-    if (!roomState || assignedSlot === null || !activePad) return;
+    if (!roomState || assignedSlot === null) return;
 
-    let animId: number;
+    let animId = 0;
     let lastSentTime = 0;
+    let lastIdentity: string | null = null;
 
     const loop = () => {
       const now = performance.now();
       if (now - lastSentTime >= 8) {
-        const packet = packGamepadState(activePad, assignedSlot);
-        onSendInput(packet);
+        const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(
+          (pad): pad is Gamepad => Boolean(pad)
+        );
+        const bound = lastIdentity ? pads.find((pad) => padIdentity(pad) === lastIdentity) : null;
+        const preferred = pads.find((pad) => pad.index === activeGamepadIndex) || pads[0] || null;
+        const pad = bound || preferred;
+        const identity = padIdentity(pad);
+        const allowed = packetAllowed({ type: 'gamepad' }, viewer);
+
+        if (lastIdentity && (identity !== lastIdentity || !pad || !allowed)) {
+          onSendInput(neutralGamepadPacket(assignedSlot, lastIdentity));
+          lastIdentity = null;
+        }
+
+        if (pad && identity && allowed) {
+          lastIdentity = identity;
+          const packed = packGamepadState({
+            index: pad.index,
+            id: pad.id,
+            connected: pad.connected,
+            buttons: pad.buttons.map((button) => button.pressed),
+            buttonValues: pad.buttons.map((button) => button.value),
+            axes: [...pad.axes],
+            timestamp: pad.timestamp
+          }, assignedSlot);
+          onSendInput({ ...packed, id: identity });
+        }
         lastSentTime = now;
       }
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
-  }, [roomState, assignedSlot, activePad, packGamepadState, onSendInput]);
-
-  // Mouse & Keyboard Event Forwarding
-  const handleMouseMove = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!document.pointerLockElement) return;
-    onSendInput({
-      type: 'mouse',
-      action: 'move',
-      dx: e.movementX,
-      dy: e.movementY
-    });
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!document.pointerLockElement) {
-      videoRef.current?.requestPointerLock?.();
-      return;
-    }
-    onSendInput({
-      type: 'mouse',
-      action: 'down',
-      button: e.button
-    });
-  };
-
-  const handleMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!document.pointerLockElement) return;
-    onSendInput({
-      type: 'mouse',
-      action: 'up',
-      button: e.button
-    });
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLVideoElement>) => {
-    if (!document.pointerLockElement) return;
-    onSendInput({
-      type: 'mouse',
-      action: 'wheel',
-      deltaY: e.deltaY
-    });
-  };
+    return () => {
+      cancelAnimationFrame(animId);
+      if (lastIdentity !== null) onSendInput(neutralGamepadPacket(assignedSlot, lastIdentity));
+    };
+  }, [roomState, assignedSlot, activeGamepadIndex, packGamepadState, onSendInput, viewer]);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,10 +293,6 @@ export const ClientView: React.FC<ClientViewProps> = ({
                 autoPlay
                 playsInline
                 muted={muted}
-                onMouseMove={handleMouseMove}
-                onMouseDown={handleMouseDown}
-                onMouseUp={handleMouseUp}
-                onWheel={handleWheel}
                 style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'crosshair' }}
               />
             ) : (

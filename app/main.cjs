@@ -37,11 +37,24 @@ function sendInputPacket(packet) {
   }
 
   inputSocket = net.createConnection({ host: '127.0.0.1', port: INPUT_PORT }, write);
+  attachInputReader(inputSocket);
   inputSocket.on('error', (err) => {
     console.error('[Parsage App] Input bridge unavailable:', err.message);
     inputSocket = null;
   });
   inputSocket.on('close', () => { inputSocket = null; });
+}
+
+function attachInputReader(socket) {
+  const lines = readline.createInterface({ input: socket });
+  lines.on('line', (line) => {
+    try {
+      const message = JSON.parse(line);
+      if (message?.type === 'rumble' && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('input-rumble', message);
+      }
+    } catch (_error) {}
+  });
 }
 
 // Spawn background services (uinput & server)

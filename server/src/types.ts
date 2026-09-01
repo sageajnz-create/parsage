@@ -53,6 +53,7 @@ export interface GamepadPacket {
   slot: number;
   buttons: number;
   axes: number[];
+  id?: string;
   timestamp: number;
 }
 
@@ -71,6 +72,7 @@ export interface KeyboardEventPacket {
   key: string;
   code: string;
   keycode?: number;
+  action?: 'down' | 'up';
 }
 
 export type ParsageMessage =

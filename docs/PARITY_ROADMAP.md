@@ -41,13 +41,15 @@ Integration note: an opt-in, single-viewer Electron path now connects the portal
 ## P2 — Input parity
 
 - [x] Permission-checked gamepad/mouse bridge
-- [ ] Keyboard capture and Linux key mapping
-- [ ] Relative mouse mode with tested high-polling-rate behavior
-- [ ] Rumble return channel
-- [ ] Hotplug, controller reorder, stuck-key release, and disconnect cleanup
+- [x] Keyboard capture and Linux key mapping
+- [x] Relative mouse mode with tested high-polling-rate behavior
+- [x] Rumble return channel
+- [x] Hotplug, controller reorder, stuck-key release, and disconnect cleanup
 - [ ] Approved-application filtering
 
 Acceptance: four-controller soak test plus keyboard/mouse safety and disconnect tests.
+
+Implementation note: keyboard, relative mouse, rumble routing, and stuck-state release now share host/web rules under `host/input_parity.py` and `web/src/input/`. Permission and disconnect tests plus a hardware-free four-controller soak run in `npm test`. The remaining P2 item is approved-application filtering.
 
 ## P3 — Product reliability
 

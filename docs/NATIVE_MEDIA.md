@@ -16,6 +16,7 @@ The native backend is being introduced behind the existing Chromium WebRTC path.
 - Local `webrtcbin` negotiation through ICE, DTLS, SRTP, and H.264 RTP reception
 - Experimental Electron bridge that exchanges native SDP/ICE through an authenticated Parsage room
 - Native SCTP data-channel reception with the same host-side input permission checks
+- Host-side rumble packets can be returned on that data channel to the slot owner
 
 ## Verified hardware result
 

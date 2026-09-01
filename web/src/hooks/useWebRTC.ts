@@ -13,6 +13,8 @@ import {
   nextBitrateMbps,
   shouldForceKeyframe
 } from '../media/bitrateAdaptation';
+import { packetAllowed, packetKind, releasePacket, revokedKinds, type InputKind } from '../input/permissions';
+import { applyRumbleToMatchingPad, normalizeRumble } from '../input/rumble';
 
 const DEFAULT_STUN_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -63,12 +65,56 @@ export function useWebRTC() {
   const lastInboundCounts = useRef({ lost: 0, received: 0, decoded: 0 });
   const mediaPeerRef = useRef<RTCPeerConnection | null>(null);
   const nativeLatencyRef = useRef<{ captureMs?: number | null; encodeMs?: number | null; codec?: string }>({});
+  const lastPeerPermissions = useRef<Map<string, PeerInfo['permissions']>>(new Map());
+  const assignedSlotRef = useRef<number | null>(null);
   const [mediaPeerConnection, setMediaPeerConnection] = useState<RTCPeerConnection | null>(null);
   const [nativeLatency, setNativeLatency] = useState<{ captureMs?: number | null; encodeMs?: number | null; codec?: string }>({});
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
   useEffect(() => { currentPeerIdRef.current = currentPeerId; }, [currentPeerId]);
+  useEffect(() => { assignedSlotRef.current = assignedSlot; }, [assignedSlot]);
+
+  const rememberPeerInput = (state: RoomState | null) => {
+    if (!isHostRef.current) {
+      lastPeerPermissions.current.clear();
+      return;
+    }
+    const next = new Map<string, PeerInfo['permissions']>();
+    for (const peer of state?.peers || []) {
+      const previous = lastPeerPermissions.current.get(peer.id);
+      if (previous) {
+        const lost = revokedKinds(previous, peer.permissions);
+        if (lost.length) window.parsage?.sendInputPacket(releasePacket(peer.id, lost as InputKind[]));
+      }
+      if (!peer.approved) {
+        if (previous || lastPeerPermissions.current.has(peer.id)) {
+          window.parsage?.sendInputPacket(releasePacket(peer.id));
+        }
+        continue;
+      }
+      next.set(peer.id, peer.permissions);
+    }
+    for (const peerId of lastPeerPermissions.current.keys()) {
+      if (!next.has(peerId)) window.parsage?.sendInputPacket(releasePacket(peerId));
+    }
+    lastPeerPermissions.current = next;
+  };
+
+  const forwardRumble = (message: { slot?: number; peerId?: string | null; padId?: string | null; strong?: number; weak?: number; duration?: number }) => {
+    const effect = normalizeRumble(message);
+    if (!effect) return;
+    const peerId = effect.peerId
+      || (typeof effect.slot === 'number' ? roomStateRef.current?.slots[effect.slot] : null)
+      || null;
+    if (!peerId) return;
+    const payload = { type: 'rumble', ...effect, peerId };
+    if (nativeTargetPeerId.current === peerId) {
+      window.parsage?.signalNativePeer?.({ targetPeerId: peerId, message: payload });
+    }
+    const dc = dataChannels.current.get(peerId);
+    if (dc?.readyState === 'open') dc.send(JSON.stringify(payload));
+  };
 
   useEffect(() => {
     if (!window.parsage?.onNativePeerMessage) return;
@@ -104,15 +150,15 @@ export function useWebRTC() {
         }));
       } else if (message.type === 'input') {
         const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
-        const packet = message.packet;
-        const allowed = packet?.type === 'gamepad'
-          ? peer?.permissions.gamepad
-          : packet?.type === 'mouse'
-            ? peer?.permissions.mouse
-            : packet?.type === 'keyboard'
-              ? peer?.permissions.keyboard
-              : false;
-        if (peer?.approved && allowed) window.parsage?.sendInputPacket(packet);
+        const packet = message.packet && typeof message.packet === 'object'
+          ? { ...message.packet, peerId: targetPeerId }
+          : message.packet;
+        const kind = packetKind(packet);
+        if (packetAllowed(packet, peer)) {
+          window.parsage?.sendInputPacket(packet);
+        } else if (kind === 'gamepad' || kind === 'mouse' || kind === 'keyboard') {
+          window.parsage?.sendInputPacket(releasePacket(targetPeerId, [kind]));
+        }
       } else if (message.type === 'error') {
         setNativeMediaStatus('error');
         setErrorMsg(`Native media failed: ${message.message || 'unknown error'}`);
@@ -121,6 +167,11 @@ export function useWebRTC() {
         nativeTargetPeerId.current = null;
       }
     });
+  }, []);
+
+  useEffect(() => {
+    if (!window.parsage?.onInputRumble) return undefined;
+    return window.parsage.onInputRumble((message) => forwardRumble(message));
   }, []);
 
   // Fetch LAN IPs for Local Direct Connect
@@ -369,6 +420,7 @@ export function useWebRTC() {
     };
     dc.onclose = () => {
       dataChannels.current.delete(targetPeerId);
+      if (isHostRef.current) window.parsage?.sendInputPacket(releasePacket(targetPeerId));
     };
     dc.onmessage = (e) => {
       try {
@@ -378,18 +430,20 @@ export function useWebRTC() {
         } else if (data.type === 'pong') {
           const rtt = Date.now() - data.timestamp;
           setLatencyMs(rtt);
+        } else if (data.type === 'rumble') {
+          const pads = navigator.getGamepads ? [...navigator.getGamepads()] : [];
+          applyRumbleToMatchingPad(pads, data, assignedSlotRef.current);
         } else if (data.type === 'media-feedback' || data.type === 'adapt' || data.type === 'request-keyframe') {
           if (isHostRef.current) applyViewerFeedback(targetPeerId, data);
         } else if (isHostRef.current) {
           const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
-          const permission = data.type === 'gamepad'
-            ? peer?.permissions.gamepad
-            : data.type === 'mouse'
-              ? peer?.permissions.mouse
-              : data.type === 'keyboard'
-                ? peer?.permissions.keyboard
-                : false;
-          if (peer?.approved && permission) window.parsage?.sendInputPacket(data);
+          const packet = { ...data, peerId: targetPeerId };
+          const kind = packetKind(packet);
+          if (packetAllowed(packet, peer)) {
+            window.parsage?.sendInputPacket(packet);
+          } else if (kind === 'gamepad' || kind === 'mouse' || kind === 'keyboard') {
+            window.parsage?.sendInputPacket(releasePacket(targetPeerId, [kind]));
+          }
         }
       } catch (err) {}
     };
@@ -401,6 +455,7 @@ export function useWebRTC() {
         setRoomState(msg.state);
         setIsHost(true);
         setCurrentPeerId(msg.hostId);
+        rememberPeerInput(msg.state);
         break;
 
       case 'session-ready': {
@@ -427,6 +482,7 @@ export function useWebRTC() {
         setCurrentPeerId(msg.peerId);
         setRoomState(msg.state);
         setIsHost(msg.isHost);
+        rememberPeerInput(msg.state);
         if (msg.state) {
           const self = msg.state.peers.find((peer: PeerInfo) => peer.id === msg.peerId);
           setAssignedSlot(self?.slot ?? null);
@@ -477,6 +533,7 @@ export function useWebRTC() {
 
       case 'room-state':
         setRoomState(msg.state);
+        rememberPeerInput(msg.state);
         if (nativeTargetPeerId.current) {
           const nativePeer = msg.state.peers.find((peer: PeerInfo) => peer.id === nativeTargetPeerId.current);
           if (!nativePeer?.approved) {
@@ -488,6 +545,13 @@ export function useWebRTC() {
         if (currentPeerIdRef.current) {
           const self = msg.state.peers.find((p: PeerInfo) => p.id === currentPeerIdRef.current);
           if (self) setAssignedSlot(self.slot);
+        }
+        break;
+
+      case 'peer-left':
+        if (typeof msg.peerId === 'string') {
+          window.parsage?.sendInputPacket(releasePacket(msg.peerId));
+          lastPeerPermissions.current.delete(msg.peerId);
         }
         break;
 
@@ -507,6 +571,9 @@ export function useWebRTC() {
         existing?.close();
         peerConnections.current.delete(msg.fromPeerId);
         dataChannels.current.delete(msg.fromPeerId);
+        if (typeof msg.fromPeerId === 'string') {
+          window.parsage?.sendInputPacket(releasePacket(msg.fromPeerId));
+        }
         setRemoteStream(null);
         break;
       }

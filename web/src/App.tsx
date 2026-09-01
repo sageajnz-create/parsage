@@ -150,6 +150,7 @@ export const App: React.FC = () => {
             onJoinRoom={handleJoinSpecificRoom}
             onClaimSlot={claimSlot}
             onSendInput={sendInputPacket}
+            currentPeerId={currentPeerId}
             onSendChat={sendChat}
             onSendReaction={sendReaction}
             wsConnected={wsConnected}

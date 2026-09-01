@@ -116,6 +116,7 @@ export function useGamepad() {
       slot,
       buttons: buttonsMask,
       axes,
+      id: pad.id,
       timestamp: Date.now()
     };
   }, []);

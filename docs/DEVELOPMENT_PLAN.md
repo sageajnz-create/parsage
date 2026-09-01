@@ -36,12 +36,16 @@ Gate: a remote 1080p60 session stays below 25 Mbps without sustained frame loss,
 
 ## 4. Harden input parity
 
-- Implement keyboard mapping and relative mouse mode behind the existing permission checks.
-- Return rumble events to the correct physical controller.
-- Release stuck state on disconnect, hotplug, and controller reorder.
-- Add four-controller soak and high-polling-rate mouse tests.
+Status: implemented in the current working tree.
 
-Gate: disconnect and permission tests cannot leave injected input active, and the four-controller soak completes without slot drift.
+- [x] Implement keyboard mapping and relative mouse mode behind the existing permission checks.
+- [x] Return rumble events to the correct physical controller.
+- [x] Release stuck state on disconnect, hotplug, and controller reorder.
+- [x] Add four-controller soak and high-polling-rate mouse tests.
+
+Gate: disconnect and permission tests cannot leave injected input active, and the four-controller soak completes without slot drift. Both run in CI without controllers or `/dev/uinput`.
+
+Implementation note: Linux `KeyboardEvent.code` mapping, relative/coalesced mouse packets, identity-stable slot binding, and rumble routing live in `host/input_parity.py` and `web/src/input/`. The host still applies the existing per-peer approval/permission bits before injection. Force-feedback readback from the virtual pads needs a live game that writes `FF_RUMBLE`; CI proves routing and cleanup rather than a physical motor.
 
 ## 5. Productize releases
 

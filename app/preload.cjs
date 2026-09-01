@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('parsage', {
   sendInputPacket: (packet) => ipcRenderer.send('input-packet', packet),
+  onInputRumble: (callback) => {
+    const listener = (_event, message) => callback(message);
+    ipcRenderer.on('input-rumble', listener);
+    return () => ipcRenderer.removeListener('input-rumble', listener);
+  },
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   startNativePeer: (options) => ipcRenderer.invoke('native-peer-start', options),
   signalNativePeer: (payload) => ipcRenderer.send('native-peer-signal', payload),
