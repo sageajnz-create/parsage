@@ -33,7 +33,7 @@ export function buildSupportBundle(options: {
     configPresent: {
       googleClientId: googleConfigured,
       requireAuth: process.env.REQUIRE_AUTH === 'true',
-      cookieSecure: process.env.COOKIE_SECURE === 'true',
+      httpsOnlyCookies: process.env.COOKIE_SECURE === 'true',
       turnUrls: turnConfigured,
       storePath: Boolean(process.env.PARSAGE_STORE_PATH)
     },
