@@ -9,10 +9,11 @@
     "dev:web": "cd web && npm run dev",
     "build": "npm run build:web && cd server && npm run build",
     "build:web": "cd web && npm run build",
-    "test": "cd server && npm test && cd ../web && npm run build && cd .. && node scripts/test-host.mjs && node --experimental-strip-types --test web/src/media/*.test.ts web/src/input/*.test.ts",
+    "test": "cd server && npm test && cd ../web && npm run build && cd .. && node scripts/test-host.mjs && node --experimental-strip-types --test web/src/media/*.test.ts web/src/input/*.test.ts && python3 packaging/test_packaging.py",
     "test:native-browser": "npm run build && node scripts/test-native-browser.mjs",
     "test:native-portal": "npm run build && node scripts/test-native-browser.mjs --portal",
     "test:browser-reconnect": "npm run build && node scripts/test-browser-reconnect.mjs",
+    "test:accessibility": "npm run build && node scripts/test-accessibility.mjs",
     "start": "node server/dist/index.js",
     "host": "python3 host/parsage_host.py"
   }

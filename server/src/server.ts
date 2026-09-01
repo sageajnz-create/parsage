@@ -9,6 +9,13 @@ import { getIceServers } from './stun-turn.js';
 import { ParsageMessage } from './types.js';
 import { AuthService } from './auth.js';
 import { ReconnectRegistry } from './reconnect.js';
+import { AccountRegistry } from './account.js';
+import { DurableStore } from './store.js';
+import { Logger, createLogger } from './log.js';
+import { buildSupportBundle } from './support-bundle.js';
+import { checkForUpdate } from './updates.js';
+import { clearCrashMarker, readCrashMarker } from './crash.js';
+import { APP_NAME, APP_VERSION } from './version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +29,11 @@ export interface ParsageServerOptions {
   approvalTimeoutMs?: number;
   roomMaxAgeMs?: number;
   reconnectGraceMs?: number;
+  store?: DurableStore;
+  accounts?: AccountRegistry;
+  logger?: Logger;
+  now?: () => number;
+  updateFetcher?: (url: string) => Promise<{ tag_name?: string; html_url?: string } | null>;
 }
 
 export interface ParsageServer {
@@ -36,7 +48,10 @@ const PORT = options.port ?? parseInt(process.env.PORT || '7777', 10);
 const HOST = options.host ?? (process.env.HOST || '0.0.0.0');
 
 const roomManager = new RoomManager();
-const auth = options.auth ?? new AuthService(process.env.GOOGLE_CLIENT_ID || '');
+const store = options.store ?? DurableStore.memory();
+const accounts = options.accounts ?? new AccountRegistry(store, options.now);
+const logger = options.logger ?? createLogger();
+const auth = options.auth ?? new AuthService(process.env.GOOGLE_CLIENT_ID || '', undefined, accounts);
 const REQUIRE_AUTH = options.requireAuth ?? process.env.REQUIRE_AUTH === 'true';
 const SECURE_COOKIE = options.secureCookie ?? process.env.COOKIE_SECURE === 'true';
 const APPROVAL_TIMEOUT_MS = options.approvalTimeoutMs ?? parseInt(process.env.APPROVAL_TIMEOUT_MS || '60000', 10);
@@ -91,9 +106,26 @@ function isAllowedWebSocketOrigin(origin: string | undefined, host: string | und
   return origin === `http://${host}` || origin === `https://${host}`;
 }
 
+function actorFrom(req: http.IncomingMessage) {
+  return auth.getActor(req.headers.cookie);
+}
+
+function requireActor(req: http.IncomingMessage, res: http.ServerResponse) {
+  const actor = actorFrom(req);
+  if (!actor) {
+    json(res, 401, { error: 'Sign in or save a local Parsage identity first.' });
+    return null;
+  }
+  return actor;
+}
+
+function setCookies(res: http.ServerResponse, cookies: string[]) {
+  res.setHeader('Set-Cookie', cookies);
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -110,7 +142,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/auth/me') {
-    json(res, 200, { profile: auth.getProfile(req.headers.cookie) });
+    json(res, 200, {
+      profile: auth.getProfile(req.headers.cookie),
+      actor: actorFrom(req)
+    });
     return;
   }
 
@@ -138,8 +173,230 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     auth.logout(req.headers.cookie);
-    res.setHeader('Set-Cookie', auth.clearCookie(SECURE_COOKIE));
+    setCookies(res, [auth.clearCookie(SECURE_COOKIE), auth.clearLocalCookie(SECURE_COOKIE)]);
     json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/account/local' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin identity request rejected.' });
+      return;
+    }
+    try {
+      const body = await readJson(req);
+      const existing = actorFrom(req);
+      if (existing?.kind === 'local') {
+        const updated = accounts.updateIdentity(existing.id, {
+          name: typeof body.name === 'string' ? body.name : existing.name,
+          tag: typeof body.tag === 'string' ? body.tag : existing.tag,
+          avatarUrl: typeof body.avatarUrl === 'string' ? body.avatarUrl : existing.avatarUrl
+        });
+        json(res, 200, { actor: updated ? accounts.toPublic(updated) : existing });
+        return;
+      }
+      if (existing?.kind === 'google') {
+        json(res, 200, { actor: existing });
+        return;
+      }
+      const created = auth.createLocalActor({
+        name: typeof body.name === 'string' ? body.name : 'Gamer',
+        tag: typeof body.tag === 'string' ? body.tag : undefined,
+        avatarUrl: typeof body.avatarUrl === 'string' ? body.avatarUrl : undefined
+      });
+      setCookies(res, [auth.localCookie(created.token, SECURE_COOKIE)]);
+      json(res, 200, { actor: created.identity });
+    } catch (error) {
+      logger.warn('local_identity_failed', { message: error instanceof Error ? error.message : String(error) });
+      json(res, 400, { error: error instanceof Error ? error.message : 'Unable to save local identity.' });
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/friends' && req.method === 'GET') {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    json(res, 200, { friends: accounts.listFriends(actor.id) });
+    return;
+  }
+
+  if (url.pathname === '/api/friends' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin friend request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    try {
+      const body = await readJson(req);
+      const handle = typeof body.handle === 'string' ? body.handle : '';
+      const friend = accounts.addFriend(actor.id, handle);
+      logger.info('friend_added', { actorId: actor.id, friendId: friend.id });
+      json(res, 200, { friend });
+    } catch (error) {
+      json(res, 404, { error: error instanceof Error ? error.message : 'Friend not found.' });
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/friends/') && req.method === 'DELETE') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin friend request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const friendId = decodeURIComponent(url.pathname.slice('/api/friends/'.length));
+    accounts.removeFriend(actor.id, friendId);
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/devices' && req.method === 'GET') {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    json(res, 200, { devices: accounts.listDevices(actor.id) });
+    return;
+  }
+
+  if (url.pathname === '/api/devices' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin device request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const body = await readJson(req).catch(() => ({} as Record<string, unknown>));
+    const device = accounts.registerDevice(actor.id, {
+      name: typeof body.name === 'string' ? body.name : `${os.hostname()} host`,
+      platform: typeof body.platform === 'string' ? body.platform : process.platform,
+      gpu: typeof body.gpu === 'string' ? body.gpu : undefined
+    });
+    logger.info('device_registered', { actorId: actor.id, deviceId: device.id });
+    json(res, 200, { device });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/devices/') && req.method === 'DELETE') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin device request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const deviceId = decodeURIComponent(url.pathname.slice('/api/devices/'.length));
+    if (!accounts.removeDevice(actor.id, deviceId)) {
+      json(res, 404, { error: 'Device not found.' });
+      return;
+    }
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/quick-links' && req.method === 'GET') {
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    json(res, 200, {
+      links: accounts.listQuickLinks(actor.id).map(link => ({
+        roomCode: link.roomCode,
+        createdAt: link.createdAt,
+        expiresAt: link.expiresAt,
+        revoked: Boolean(link.revokedAt)
+      }))
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/quick-links' && req.method === 'POST') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin quick link request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const body = await readJson(req).catch(() => ({} as Record<string, unknown>));
+    const roomCode = typeof body.roomCode === 'string' ? body.roomCode.trim().toUpperCase() : '';
+    const expiresInMs = typeof body.expiresInMs === 'number' ? body.expiresInMs : 24 * 60 * 60_000;
+    if (!roomManager.getRoom(roomCode)) {
+      json(res, 404, { error: 'Room does not exist or has expired.' });
+      return;
+    }
+    const room = roomManager.getRoom(roomCode);
+    const host = room?.hostId ? roomManager.getClient(room.hostId) : undefined;
+    if (host?.authUserId && host.authUserId !== actor.id) {
+      json(res, 403, { error: 'Only the host identity can create a quick link for this room.' });
+      return;
+    }
+    const created = accounts.createQuickLink(actor.id, roomCode, expiresInMs);
+    logger.info('quick_link_created', { actorId: actor.id, expiresAt: created.link.expiresAt });
+    json(res, 200, {
+      token: created.token,
+      url: `/?link=${encodeURIComponent(created.token)}`,
+      expiresAt: created.link.expiresAt
+    });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/quick-links/') && req.method === 'GET') {
+    const token = decodeURIComponent(url.pathname.slice('/api/quick-links/'.length));
+    const link = accounts.resolveQuickLink(token);
+    if (!link) {
+      json(res, 410, { error: 'This share link has expired or been revoked.' });
+      return;
+    }
+    json(res, 200, { roomCode: link.roomCode, expiresAt: link.expiresAt });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/quick-links/') && req.method === 'DELETE') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin quick link request rejected.' });
+      return;
+    }
+    const actor = requireActor(req, res);
+    if (!actor) return;
+    const token = decodeURIComponent(url.pathname.slice('/api/quick-links/'.length));
+    if (!accounts.revokeQuickLink(actor.id, token)) {
+      json(res, 404, { error: 'Quick link not found.' });
+      return;
+    }
+    logger.info('quick_link_revoked', { actorId: actor.id });
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/support-bundle' && req.method === 'GET') {
+    const bundle = buildSupportBundle({
+      accounts,
+      logs: logger.recent(),
+      uptime: process.uptime()
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Disposition': `attachment; filename="parsage-support-${APP_VERSION}.json"`,
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify(bundle, null, 2));
+    return;
+  }
+
+  if (url.pathname === '/api/crash' && req.method === 'GET') {
+    json(res, 200, { crash: readCrashMarker() });
+    return;
+  }
+
+  if (url.pathname === '/api/crash' && req.method === 'DELETE') {
+    if (!isSameOrigin(req)) {
+      json(res, 403, { error: 'Cross-origin crash request rejected.' });
+      return;
+    }
+    clearCrashMarker();
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/updates' && req.method === 'GET') {
+    json(res, 200, await checkForUpdate({ fetchRelease: options.updateFetcher }));
     return;
   }
 
@@ -193,8 +450,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      app: 'Parsage',
-      version: '0.1.0',
+      app: APP_NAME,
+      version: APP_VERSION,
       tagline: 'Plug-and-play low-latency game & desktop streaming for Linux and friends',
       credits: 'Created by Sage & Antigravity',
       uptime: process.uptime(),
@@ -292,8 +549,12 @@ const disconnectTimers = new Map<string, NodeJS.Timeout>();
 
 wss.on('connection', (ws: WebSocket, req) => {
   let clientId = `peer-${Date.now().toString(36)}-${nextClientId++}`;
+  const actor = actorFrom(req);
   const authProfile = auth.getProfile(req.headers.cookie);
-  roomManager.registerClient(clientId, ws, authProfile?.name || 'Anonymous', authProfile?.id || null);
+  const displayName = actor?.name || authProfile?.name || 'Anonymous';
+  const authUserId = actor?.id || authProfile?.id || null;
+  roomManager.registerClient(clientId, ws, displayName, authUserId);
+  if (authUserId) accounts.setPresence(authUserId, 'online');
   let reconnectToken = reconnectTokens.issue(clientId);
   ws.send(JSON.stringify({ type: 'session-ready', token: reconnectToken }));
   let rateWindowStartedAt = Date.now();
@@ -364,7 +625,11 @@ wss.on('connection', (ws: WebSocket, req) => {
           if (typeof msg.name !== 'string' || msg.name.trim().length === 0) break;
           msg.name = authProfile?.name || msg.name.trim().slice(0, 64);
           const { roomCode, state } = roomManager.createRoom(clientId, msg.name, msg.settings);
-          console.log(`[Parsage] Room created: ${roomCode} by Host "${msg.name}" (${clientId})`);
+          logger.info('room_created', { roomCode });
+          if (authUserId) {
+            accounts.setPresence(authUserId, 'hosting', { roomCode });
+            accounts.touchDevice(authUserId, roomCode);
+          }
           ws.send(JSON.stringify({
             type: 'room-created',
             roomCode,
@@ -396,7 +661,8 @@ wss.on('connection', (ws: WebSocket, req) => {
           const role = msg.role === 'agent' ? 'agent' : 'client';
           const result = roomManager.joinRoom(clientId, msg.roomCode, msg.name, role);
           if (result.success && result.state) {
-            console.log(`[Parsage] Peer "${msg.name}" (${clientId}) joined room ${result.state.roomCode}`);
+            logger.info('room_joined', { roomCode: result.state.roomCode });
+            if (authUserId) accounts.setPresence(authUserId, 'in-game', { roomCode: result.state.roomCode });
             ws.send(JSON.stringify({
               type: 'room-joined',
               roomCode: result.state.roomCode,
@@ -470,7 +736,7 @@ wss.on('connection', (ws: WebSocket, req) => {
           break;
       }
     } catch (err) {
-      console.error(`[Parsage] Error processing message from ${clientId}:`, err);
+      logger.error('signaling_message_failed', { message: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -479,16 +745,19 @@ wss.on('connection', (ws: WebSocket, req) => {
     const existing = disconnectTimers.get(clientId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
+      const removed = roomManager.getClient(clientId);
+      const identityId = removed?.authUserId;
       roomManager.removeClient(clientId);
       disconnectTimers.delete(clientId);
       reconnectTokens.remove(clientId);
+      if (identityId) accounts.setPresence(identityId, 'offline');
     }, reconnectGraceMs);
     timer.unref();
     disconnectTimers.set(clientId, timer);
   });
 
   ws.on('error', (err) => {
-    console.error(`[Parsage] WebSocket error for ${clientId}:`, err);
+    logger.error('websocket_error', { message: err instanceof Error ? err.message : String(err) });
   });
 });
 
@@ -500,6 +769,10 @@ const listen = (): Promise<number> => new Promise((resolve, reject) => {
     const address = server.address();
     const listeningPort = address && typeof address === 'object' ? address.port : PORT;
     const lanIps = getLocalIpAddresses();
+    logger.info('server_listening', {
+      port: listeningPort,
+      lanIps
+    });
     console.log(`
 ============================================================
   🌿 PARSAGE SIGNALING & STREAM HUB

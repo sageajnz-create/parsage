@@ -244,7 +244,13 @@ const instrumentation = String.raw`
 
 try {
   const server = child(process.execPath, ['server/dist/index.js'], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      PARSAGE_STORE_PATH: join(tmpdir(), `parsage-browser-store-${port}.json`),
+      PARSAGE_CRASH_PATH: join(tmpdir(), `parsage-browser-crash-${port}.json`),
+    },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let serverErrors = '';

@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside style={{
+    <aside aria-label="Parsage" style={{
       width: '260px',
       background: 'var(--bg-card)',
       borderRight: '1px solid var(--border-muted)',
@@ -48,7 +48,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Header & Brand */}
       <div>
         <div
+          role="button"
+          tabIndex={0}
           onClick={() => onSelectView('computers')}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectView('computers'); } }}
+          aria-label="Parsage home"
           style={{
             padding: '20px',
             display: 'flex',
@@ -71,7 +75,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Profile Card / Login Trigger */}
         <div
+          role="button"
+          tabIndex={0}
           onClick={onOpenAuth}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenAuth(); } }}
+          aria-label="Open profile and sign-in"
           style={{
             padding: '14px 20px',
             display: 'flex',
@@ -127,10 +135,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Parsec Main Navigation Menu */}
-        <nav style={{ padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <nav aria-label="Main" style={{ padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <button
             onClick={() => onSelectView('computers')}
             className={`btn ${currentView === 'computers' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={currentView === 'computers' ? 'page' : undefined}
             style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
           >
             <Monitor size={18} />
@@ -140,6 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => onSelectView('arcade')}
             className={`btn ${currentView === 'arcade' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={currentView === 'arcade' ? 'page' : undefined}
             style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
           >
             <Gamepad2 size={18} />
@@ -149,27 +159,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => onSelectView('friends')}
             className={`btn ${currentView === 'friends' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={currentView === 'friends' ? 'page' : undefined}
             style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
           >
-            <Users size={18} />
+            <Users size={18} aria-hidden="true" />
             <span>Friends</span>
           </button>
 
           <button
             onClick={() => onSelectView('settings')}
             className={`btn ${currentView === 'settings' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={currentView === 'settings' ? 'page' : undefined}
             style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
           >
-            <Settings size={18} />
+            <Settings size={18} aria-hidden="true" />
             <span>Settings</span>
           </button>
 
           <button
             onClick={() => onSelectView('diagnostics')}
             className={`btn ${currentView === 'diagnostics' ? 'btn-primary' : 'btn-secondary'}`}
+            aria-current={currentView === 'diagnostics' ? 'page' : undefined}
             style={{ justifyContent: 'flex-start', padding: '10px 16px', fontSize: '0.9rem', border: 'none' }}
           >
-            <Activity size={18} />
+            <Activity size={18} aria-hidden="true" />
             <span>Diagnostics</span>
           </button>
         </nav>

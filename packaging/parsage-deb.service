@@ -1,0 +1,13 @@
+[Unit]
+Description=Parsage headless host (Debian package)
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/share/parsage/bin/parsage headless
+Restart=on-failure
+RestartSec=3
+Environment=PORT=7777
+
+[Install]
+WantedBy=default.target

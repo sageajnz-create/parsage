@@ -1,9 +1,16 @@
 import { createParsageServer } from './server.js';
+import { DurableStore } from './store.js';
+import { installProcessCrashHandler } from './crash.js';
+import { log } from './log.js';
 
-const application = createParsageServer();
+installProcessCrashHandler('signaling');
+
+const application = createParsageServer({
+  store: DurableStore.open()
+});
 
 application.listen().catch(error => {
-  console.error('[Parsage] Failed to start signaling server:', error);
+  log.error('server_start_failed', { message: error instanceof Error ? error.message : String(error) });
   process.exit(1);
 });
 
@@ -14,7 +21,7 @@ const shutdown = () => {
   application.close()
     .then(() => process.exit(0))
     .catch(error => {
-      console.error('[Parsage] Failed to stop signaling server cleanly:', error);
+      log.error('server_stop_failed', { message: error instanceof Error ? error.message : String(error) });
       process.exit(1);
     });
 };

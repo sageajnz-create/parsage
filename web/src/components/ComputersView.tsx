@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { RoomState, SavedComputer } from '../types';
+import { RoomState } from '../types';
 import {
   Monitor, Radio, Play, StopCircle, Copy, Check, Users,
-  Zap, Share2, Plus, ExternalLink, ArrowRight, Shield, Trash2
+  ArrowRight, Trash2, Plus
 } from 'lucide-react';
+import { createQuickLink, listDevices, registerDevice, removeDevice, type DeviceRecord } from '../api/account';
 
 interface ComputersViewProps {
   roomState: RoomState | null;
@@ -15,8 +16,6 @@ interface ComputersViewProps {
   pendingJoinCode?: string | null;
   errorMsg?: string | null;
 }
-
-const STORAGE_KEY = 'parsage_saved_computers';
 
 export const ComputersView: React.FC<ComputersViewProps> = ({
   roomState,
@@ -30,19 +29,14 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
 }) => {
   const [joinCode, setJoinCode] = useState('');
   const [copied, setCopied] = useState(false);
-  const [savedPcs, setSavedPcs] = useState<SavedComputer[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return [];
-  });
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<DeviceRecord[]>([]);
+  const [deviceName, setDeviceName] = useState(`${typeof navigator !== 'undefined' ? navigator.platform : 'linux'} host`);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedPcs));
-    } catch (e) {}
-  }, [savedPcs]);
+    listDevices().then(setDevices).catch(() => setDevices([]));
+  }, []);
 
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,16 +44,30 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
     onJoinRoom(joinCode.trim().toUpperCase());
   };
 
-  const handleRemoveComputer = (id: string) => {
-    setSavedPcs(prev => prev.filter(pc => pc.id !== id));
+  const handleRemoveComputer = async (id: string) => {
+    await removeDevice(id);
+    setDevices(prev => prev.filter(pc => pc.id !== id));
   };
 
-  const copyRoomLink = () => {
+  const handleRegisterDevice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const device = await registerDevice({ name: deviceName, platform: navigator.platform });
+    setDevices(prev => [device, ...prev]);
+  };
+
+  const copyRoomLink = async () => {
     if (!roomState) return;
-    const url = `${window.location.origin}/?join=${roomState.roomCode}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    try {
+      const created = await createQuickLink(roomState.roomCode);
+      const url = `${window.location.origin}${created.url}`;
+      await navigator.clipboard.writeText(url);
+      setLinkToken(created.token);
+      setCopied(true);
+      setLinkError(null);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (error: any) {
+      setLinkError(error.message || 'Unable to create an expiring share link.');
+    }
   };
 
   return (
@@ -85,7 +93,9 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
 
         {/* Quick Room Code Connect Bar */}
         <form onSubmit={handleJoinSubmit} style={{ display: 'flex', gap: '8px', minWidth: '340px' }}>
+          <label htmlFor="room-code" className="sr-only">Room code</label>
           <input
+            id="room-code"
             type="text"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
@@ -179,33 +189,49 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
               ) : (
                 <>
                   <button className="btn btn-success" onClick={copyRoomLink} style={{ flex: 1 }}>
-                    {copied ? <Check size={16} /> : <Copy size={16} />}
-                    <span>{copied ? 'Link Copied!' : `Share (${roomState.roomCode})`}</span>
+                    {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+                    <span>{copied ? 'Expiring link copied' : `Share expiring link (${roomState.roomCode})`}</span>
                   </button>
                   {onStopHosting && (
-                    <button className="btn btn-danger" onClick={onStopHosting} style={{ padding: '10px 14px' }}>
-                      <StopCircle size={18} />
+                    <button className="btn btn-danger" onClick={onStopHosting} style={{ padding: '10px 14px' }} aria-label="Stop hosting">
+                      <StopCircle size={18} aria-hidden="true" />
                     </button>
                   )}
                 </>
               )}
-              <button className="btn btn-secondary" onClick={onOpenSettings} style={{ padding: '10px 14px' }}>
+              <button className="btn btn-secondary" onClick={onOpenSettings} style={{ padding: '10px 14px' }} aria-label="Open host settings">
                 ⚙️
               </button>
             </div>
+            {linkError && <p role="alert" style={{ color: 'var(--reggae-red-bright)', fontSize: '0.8rem', marginTop: '10px' }}>{linkError}</p>}
           </div>
         </div>
       </div>
 
-      {/* COMPUTERS SHARED WITH YOU */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--zion-teal-bright)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Users size={18} /> COMPUTERS SHARED WITH YOU
+            <Users size={18} aria-hidden="true" /> YOUR SAVED DEVICES
           </h3>
         </div>
 
-        {savedPcs.length === 0 ? (
+        <form onSubmit={handleRegisterDevice} className="card" style={{ padding: '16px 18px', marginBottom: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <label htmlFor="device-name" className="sr-only">Device name</label>
+            <input
+            id="device-name"
+            type="text"
+            value={deviceName}
+            onChange={(e) => setDeviceName(e.target.value)}
+            placeholder="This computer's name"
+            style={{ flex: 1, minWidth: '220px', background: 'var(--bg-input)', border: '1px solid var(--border-muted)', color: 'var(--fg-main)', padding: '10px 14px', borderRadius: '8px' }}
+          />
+          <button type="submit" className="btn btn-secondary">
+            <Plus size={16} aria-hidden="true" />
+            <span>Register this computer</span>
+          </button>
+        </form>
+
+        {devices.length === 0 ? (
           <div className="card" style={{
             background: 'var(--bg-input)',
             borderRadius: '10px',
@@ -213,51 +239,53 @@ export const ComputersView: React.FC<ComputersViewProps> = ({
             textAlign: 'center',
             border: '1px dashed var(--border-muted)'
           }}>
-            <Monitor size={42} color="var(--border-muted)" style={{ margin: '0 auto 12px auto' }} />
-            <h4 style={{ fontSize: '1.05rem', color: 'var(--fg-bright)', marginBottom: '4px' }}>No Shared Computers</h4>
+            <Monitor size={42} color="var(--border-muted)" style={{ margin: '0 auto 12px auto' }} aria-hidden="true" />
+            <h4 style={{ fontSize: '1.05rem', color: 'var(--fg-bright)', marginBottom: '4px' }}>No Saved Computers</h4>
             <p style={{ color: 'var(--fg-muted)', fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto' }}>
-              When a friend shares a session with you, or when you join via a room code, you can save their PC here for instant 1-click connecting.
+              Register this host in the durable store so it survives app restarts. Friends you add can see when it is hosting.
             </p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-            {savedPcs.map((pc) => (
+            {devices.map((pc) => (
               <div key={pc.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '16px' }}>
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--bg-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--bg-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }} aria-hidden="true">
                         💻
                       </div>
                       <div>
                         <h4 style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--fg-bright)' }}>{pc.name}</h4>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>Owner: {pc.ownerName}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>{pc.platform}{pc.gpu ? ` · ${pc.gpu}` : ''}</span>
                       </div>
                     </div>
 
                     <button
                       onClick={() => handleRemoveComputer(pc.id)}
                       style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer' }}
-                      title="Remove Saved Computer"
+                      aria-label={`Remove ${pc.name}`}
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={15} aria-hidden="true" />
                     </button>
                   </div>
 
                   <div style={{ background: 'var(--bg-input)', padding: '10px 12px', borderRadius: '6px', marginTop: '12px', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>{pc.gpu}</span>
-                    <span style={{ color: 'var(--reggae-green-bright)', fontWeight: 'bold' }}>{pc.pingMs} ms</span>
+                    <span style={{ color: 'var(--fg-muted)' }}>{pc.roomCode ? `Hosting ${pc.roomCode}` : 'Idle'}</span>
+                    <span style={{ color: 'var(--reggae-green-bright)', fontWeight: 'bold' }}>{new Date(pc.lastSeen).toLocaleString()}</span>
                   </div>
                 </div>
 
-                <button
-                  className="btn btn-primary"
-                  onClick={() => onJoinRoom(pc.roomCode)}
-                  style={{ width: '100%', padding: '9px' }}
-                >
-                  <Play size={16} />
-                  <span>Connect to {pc.ownerName}</span>
-                </button>
+                {pc.roomCode && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => onJoinRoom(pc.roomCode!)}
+                    style={{ width: '100%', padding: '9px' }}
+                  >
+                    <Play size={16} aria-hidden="true" />
+                    <span>Connect to {pc.name}</span>
+                  </button>
+                )}
               </div>
             ))}
           </div>

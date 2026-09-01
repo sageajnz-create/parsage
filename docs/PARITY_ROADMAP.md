@@ -53,10 +53,12 @@ Implementation note: keyboard, relative mouse, rumble routing, and stuck-state r
 
 ## P3 — Product reliability
 
-- [ ] Persistent identity, authenticated friends, presence, and device ownership
-- [ ] Secure quick links with revocation and expiry
-- [ ] Auto-update, crash recovery, structured logs, and support bundle
+- [x] Persistent identity, authenticated friends, presence, and device ownership
+- [x] Secure quick links with revocation and expiry
+- [x] Auto-update, crash recovery, structured logs, and support bundle
 - [ ] Headless-host flow and service lifecycle
-- [ ] Cross-platform client matrix and accessibility pass
+- [x] Cross-platform client matrix and accessibility pass
 
 Acceptance: clean install/update/uninstall plus automated smoke tests on every supported distribution and client platform.
+
+Implementation note: identity/friends/devices/presence now persist in a host-local JSON store. Quick links expire and can be revoked. Structured logs and support bundles stay on-box and do not include secrets. Packaging CI covers `.deb` extract plus `install.sh` install/upgrade/uninstall, not a live multi-distro farm. The client matrix in `docs/CLIENT_MATRIX.md` only lists gates that actually run. Headless systemd units ship with the package; a dedicated headless-host soak is still open.

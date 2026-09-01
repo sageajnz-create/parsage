@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Activity, Cpu, Monitor, Zap, CheckCircle, ShieldCheck, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Activity, Cpu, Monitor, Zap, CheckCircle, ShieldCheck, RefreshCw, Download, AlertTriangle } from 'lucide-react';
 
 export const DiagnosticsView: React.FC = () => {
   const [testingStun, setTestingStun] = useState(false);
@@ -8,6 +8,13 @@ export const DiagnosticsView: React.FC = () => {
     'Cloudflare STUN (stun:stun.cloudflare.com:3478)': 8,
     'Mozilla STUN (stun:stun.services.mozilla.com:3478)': 14
   });
+  const [crash, setCrash] = useState<{ at: string; service: string; message: string } | null>(null);
+  const [update, setUpdate] = useState<{ current: string; latest: string | null; updateAvailable: boolean; releaseUrl: string | null; source: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/crash', { credentials: 'same-origin' }).then(r => r.json()).then(data => setCrash(data.crash || null)).catch(() => {});
+    fetch('/api/updates', { credentials: 'same-origin' }).then(r => r.json()).then(setUpdate).catch(() => {});
+  }, []);
 
   const runStunTest = () => {
     setTestingStun(true);
@@ -36,8 +43,40 @@ export const DiagnosticsView: React.FC = () => {
         </div>
 
         <div className="badge badge-green" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-          <CheckCircle size={16} />
+          <CheckCircle size={16} aria-hidden="true" />
           <span>All Subsystems Nominal</span>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <h3 style={{ fontSize: '1.1rem' }}>Support, crash recovery, and updates</h3>
+        <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+          Support bundles stay on this machine. They include structured logs, store counts, and crash markers — not Google tokens, session cookies, or TURN credentials.
+        </p>
+        {crash && (
+          <div role="status" style={{ background: 'rgba(232, 17, 45, 0.12)', border: '1px solid var(--reggae-red)', padding: '12px 14px', borderRadius: '8px' }}>
+            <strong><AlertTriangle size={16} aria-hidden="true" /> Last crash</strong>
+            <div style={{ fontSize: '0.85rem', marginTop: '6px' }}>{crash.at} · {crash.service}: {crash.message}</div>
+            <button className="btn btn-secondary" style={{ marginTop: '10px' }} onClick={() => fetch('/api/crash', { method: 'DELETE', credentials: 'same-origin' }).then(() => setCrash(null))}>
+              Dismiss crash marker
+            </button>
+          </div>
+        )}
+        {update && (
+          <div>
+            <div style={{ fontSize: '0.9rem' }}>Installed <strong>v{update.current}</strong>
+              {update.updateAvailable && update.latest ? ` · GitHub has v${update.latest}` : ' · no newer GitHub release reported'}
+            </div>
+            {update.releaseUrl && (
+              <a href={update.releaseUrl} style={{ color: 'var(--reggae-gold)' }}>Open GitHub release</a>
+            )}
+          </div>
+        )}
+        <div>
+          <a className="btn btn-primary" href="/api/support-bundle">
+            <Download size={16} aria-hidden="true" />
+            <span>Download support bundle</span>
+          </a>
         </div>
       </div>
 

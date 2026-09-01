@@ -52,7 +52,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div style={{
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="parsage-auth-title"
+      style={{
       position: 'fixed',
       inset: 0,
       zIndex: 100,
@@ -76,6 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }}>
         <button
           onClick={onClose}
+          aria-label="Close profile dialog"
           style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
         >
           ✕
@@ -83,7 +88,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         <div style={{ textAlign: 'center' }}>
           <span style={{ fontSize: '2.4rem' }}>🌿</span>
-          <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '6px' }} className="reggae-gradient-text">
+          <h3 id="parsage-auth-title" style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '6px' }} className="reggae-gradient-text">
             Parsage Gamer Profile
           </h3>
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.85rem', marginTop: '2px' }}>
@@ -120,32 +125,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </label>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
               {AVATAR_OPTIONS.map((url, i) => (
-                <img
+                <button
                   key={i}
-                  src={url}
-                  alt="Avatar"
+                  type="button"
                   onClick={() => setSelectedAvatar(url)}
-                  style={{
-                    width: '42px',
-                    height: '42px',
-                    borderRadius: '50%',
-                    cursor: 'pointer',
-                    border: selectedAvatar === url ? '3px solid var(--reggae-gold)' : '1px solid var(--border-muted)',
-                    background: '#151412',
-                    padding: '2px',
-                    transition: 'transform 0.1s ease'
-                  }}
-                />
+                  aria-label={`Choose avatar ${i + 1}`}
+                  aria-pressed={selectedAvatar === url}
+                  style={{ background: 'transparent', border: 'none', padding: 0 }}
+                >
+                  <img
+                    src={url}
+                    alt=""
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      border: selectedAvatar === url ? '3px solid var(--reggae-gold)' : '1px solid var(--border-muted)',
+                      background: '#151412',
+                      padding: '2px',
+                      transition: 'transform 0.1s ease'
+                    }}
+                  />
+                </button>
               ))}
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: '12px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
+              <label htmlFor="gamer-name" style={{ display: 'block', fontSize: '0.82rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
                 Gamer Name:
               </label>
               <input
+                id="gamer-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -154,10 +167,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
+              <label htmlFor="gamer-tag" style={{ display: 'block', fontSize: '0.82rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
                 Tag:
               </label>
               <input
+                id="gamer-tag"
                 type="text"
                 value={tag}
                 onChange={(e) => setTag(e.target.value)}

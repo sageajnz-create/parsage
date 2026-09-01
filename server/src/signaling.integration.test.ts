@@ -3,6 +3,8 @@ import { spawn, ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
 type Message = Record<string, any> & { type: string };
@@ -116,7 +118,14 @@ test('approval gates RTC, cross-room administration, and reconnect resumption', 
   const port = await availablePort();
   const serverPath = fileURLToPath(new URL('./index.js', import.meta.url));
   const child = spawn(process.execPath, [serverPath], {
-    env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), REQUIRE_AUTH: 'false' },
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      REQUIRE_AUTH: 'false',
+      PARSAGE_STORE_PATH: join(tmpdir(), `parsage-store-${port}.json`),
+      PARSAGE_CRASH_PATH: join(tmpdir(), `parsage-crash-${port}.json`),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let serverErrors = '';

@@ -1,5 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -10,6 +12,8 @@ let serverProcess = null;
 let uinputProcess = null;
 const PORT = 7777;
 const INPUT_PORT = 7778;
+let stopping = false;
+let restartAttempts = [];
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 let inputSocket = null;
@@ -57,33 +61,80 @@ function attachInputReader(socket) {
   });
 }
 
-// Spawn background services (uinput & server)
-function startBackgroundServices() {
-  console.log('[Parsage App] Starting uinput service...');
+function crashPath() {
+  if (process.env.PARSAGE_CRASH_PATH) return process.env.PARSAGE_CRASH_PATH;
+  const stateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
+  return path.join(stateHome, 'parsage', 'last-crash.json');
+}
+
+function writeCrashMarker(service, message, code) {
+  try {
+    const file = crashPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify({
+      at: new Date().toISOString(),
+      service,
+      message: String(message).slice(0, 500),
+      code: code ?? null
+    }, null, 2), { encoding: 'utf8', mode: 0o600 });
+  } catch (_error) {}
+}
+
+function canRestart() {
+  const now = Date.now();
+  restartAttempts = restartAttempts.filter(timestamp => now - timestamp < 60_000);
+  if (restartAttempts.length >= 5) return false;
+  restartAttempts.push(now);
+  return true;
+}
+
+function watchChild(child, service) {
+  if (!child) return;
+  child.on('exit', (code, signal) => {
+    if (stopping) return;
+    writeCrashMarker(service, `${service} exited (${signal || code})`, code);
+    if (!canRestart()) return;
+    if (service === 'signaling') {
+      startSignalingServer();
+      if (mainWindow && !mainWindow.isDestroyed()) waitForServer(() => mainWindow.reload());
+    } else if (service === 'uinput') {
+      startUinputService();
+    }
+  });
+}
+
+function startUinputService() {
   const uinputScript = path.join(ROOT_DIR, 'host', 'uinput_service.py');
   uinputProcess = spawn('python3', [uinputScript], {
     cwd: ROOT_DIR,
     stdio: 'inherit'
   });
-
   uinputProcess.on('error', (err) => {
     console.error('[Parsage App] Failed to start uinput service:', err);
   });
+  watchChild(uinputProcess, 'uinput');
+}
 
-  console.log('[Parsage App] Starting signaling & web server...');
+function startSignalingServer() {
   const serverScript = path.join(ROOT_DIR, 'server', 'dist', 'index.js');
   serverProcess = spawn('node', [serverScript], {
     cwd: path.join(ROOT_DIR, 'server'),
     env: { ...process.env, PORT: String(PORT) },
     stdio: 'inherit'
   });
-
   serverProcess.on('error', (err) => {
     console.error('[Parsage App] Failed to start server:', err);
   });
+  watchChild(serverProcess, 'signaling');
+}
+
+function startBackgroundServices() {
+  startUinputService();
+  startSignalingServer();
 }
 
 function stopBackgroundServices() {
+  stopping = true;
   console.log('[Parsage App] Stopping background services...');
   if (uinputProcess) {
     try { uinputProcess.kill('SIGTERM'); } catch (e) {}

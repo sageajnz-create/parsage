@@ -20,12 +20,13 @@ echo -e "${RED}  Created with ❤️ by Sage & Antigravity${NC}"
 echo -e "${GREEN}============================================================${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL_DIR="$HOME/.local/share/parsage"
-BIN_DIR="$HOME/.local/bin"
+INSTALL_DIR="${PARSAGE_INSTALL_DIR:-$HOME/.local/share/parsage}"
+BIN_DIR="${PARSAGE_BIN_DIR:-$HOME/.local/bin}"
+SKIP_DEPS="${PARSAGE_SKIP_DEPS:-0}"
 
 echo -e "\n${BOLD}${TEAL}[1/4] Detecting Linux Distribution & Dependencies...${NC}"
 
-if command -v apt &>/dev/null; then
+if [ "$SKIP_DEPS" != "1" ] && command -v apt &>/dev/null; then
     echo -e "${GOLD}Detected Debian/Ubuntu/Linux Mint base.${NC}"
     if ! command -v node &>/dev/null || ! command -v python3 &>/dev/null; then
         echo -e "Installing required runtime packages (nodejs, python3, pipewire)..."
@@ -33,7 +34,7 @@ if command -v apt &>/dev/null; then
             sudo apt update -qq && sudo apt install -y -qq nodejs npm python3 pipewire electron || true
         fi
     fi
-elif command -v pacman &>/dev/null; then
+elif [ "$SKIP_DEPS" != "1" ] && command -v pacman &>/dev/null; then
     echo -e "${GOLD}Detected Arch/Omarchy base.${NC}"
     if ! gst-inspect-1.0 webrtcbin &>/dev/null || ! gst-inspect-1.0 vah264enc &>/dev/null; then
         echo -e "Installing native PipeWire/WebRTC encoder dependencies..."
@@ -82,10 +83,11 @@ chmod +x "$INSTALL_DIR/bin/parsage" "$INSTALL_DIR/host/"*.py
 
 ln -sf "$INSTALL_DIR/bin/parsage" "$BIN_DIR/parsage"
 
-echo -e "\n${BOLD}${TEAL}[4/4] Installing Desktop Launcher & App Menu Icon...${NC}"
-ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
-APP_DIR="$HOME/.local/share/applications"
-mkdir -p "$ICON_DIR" "$APP_DIR"
+echo -e "\n${BOLD}${TEAL}[4/4] Installing Desktop Launcher, Service Unit & App Menu Icon...${NC}"
+ICON_DIR="${PARSAGE_ICON_DIR:-$HOME/.local/share/icons/hicolor/scalable/apps}"
+APP_DIR="${PARSAGE_APP_DIR:-$HOME/.local/share/applications}"
+SYSTEMD_DIR="${PARSAGE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+mkdir -p "$ICON_DIR" "$APP_DIR" "$SYSTEMD_DIR"
 
 cp "$SCRIPT_DIR/packaging/parsage.svg" "$ICON_DIR/parsage.svg"
 
@@ -104,6 +106,9 @@ StartupWMClass=Parsage
 DESKTOP_EOF
 
 chmod +x "$APP_DIR/parsage.desktop"
+if [ -f "$SCRIPT_DIR/packaging/parsage.service" ]; then
+    cp "$SCRIPT_DIR/packaging/parsage.service" "$SYSTEMD_DIR/parsage.service"
+fi
 update-desktop-database "$APP_DIR" 2>/dev/null || true
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/parsage"

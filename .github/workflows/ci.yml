@@ -26,3 +26,4 @@ jobs:
         working-directory: web
       - run: npm test
       - run: npm run test:browser-reconnect
+      - run: npm run test:accessibility

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { OAuth2Client, TokenPayload } from 'google-auth-library';
+import { AccountRegistry, PublicIdentity } from './account.js';
 
 export interface AuthProfile {
   id: string;
@@ -21,19 +22,24 @@ interface Pairing {
 
 type TokenVerifier = (credential: string, audience: string) => Promise<TokenPayload | undefined>;
 
-const SESSION_COOKIE = 'parsage_session';
+export const SESSION_COOKIE = 'parsage_session';
+export const LOCAL_COOKIE = 'parsage_local';
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60_000;
+const LOCAL_DURATION_MS = 365 * 24 * 60 * 60_000;
 
 export class AuthService {
   private sessions = new Map<string, Session>();
   private pairings = new Map<string, Pairing>();
   private oauthClient = new OAuth2Client();
   private readonly verifyToken: TokenVerifier;
+  private readonly accounts?: AccountRegistry;
 
   constructor(
     public readonly clientId: string,
-    verifyToken?: TokenVerifier
+    verifyToken?: TokenVerifier,
+    accounts?: AccountRegistry
   ) {
+    this.accounts = accounts;
     this.verifyToken = verifyToken || (async (credential, audience) => {
       const ticket = await this.oauthClient.verifyIdToken({ idToken: credential, audience });
       return ticket.getPayload();
@@ -59,11 +65,9 @@ export class AuthService {
       email: payload.email,
       avatarUrl: payload.picture || ''
     };
+    this.accounts?.upsertGoogleIdentity(profile);
     const token = randomBytes(32).toString('base64url');
-    this.sessions.set(this.hashToken(token), {
-      profile,
-      expiresAt: Date.now() + SESSION_DURATION_MS
-    });
+    this.rememberGoogleSession(token, profile);
     return { token, profile };
   }
 
@@ -71,6 +75,16 @@ export class AuthService {
     const token = parseCookies(cookieHeader)[SESSION_COOKIE];
     if (!token) return null;
     const key = this.hashToken(token);
+    if (this.accounts) {
+      const identity = this.accounts.identityFromTokenHash(key);
+      if (!identity || identity.kind !== 'google') return null;
+      return {
+        id: identity.id,
+        name: identity.name,
+        email: identity.email || '',
+        avatarUrl: identity.avatarUrl
+      };
+    }
     const session = this.sessions.get(key);
     if (!session) return null;
     if (session.expiresAt <= Date.now()) {
@@ -80,9 +94,44 @@ export class AuthService {
     return session.profile;
   }
 
+  getActor(cookieHeader?: string): PublicIdentity | null {
+    const google = this.getProfile(cookieHeader);
+    if (google) {
+      const stored = this.accounts?.getIdentity(google.id);
+      if (stored) return this.accounts!.toPublic(stored);
+      return {
+        id: google.id,
+        kind: 'google',
+        name: google.name,
+        tag: google.id.slice(-4),
+        email: google.email,
+        avatarUrl: google.avatarUrl,
+        handle: `${google.name}#${google.id.slice(-4)}`
+      };
+    }
+    const localToken = parseCookies(cookieHeader)[LOCAL_COOKIE];
+    if (!localToken || !this.accounts) return null;
+    const identity = this.accounts.identityFromTokenHash(this.hashToken(localToken));
+    if (!identity || identity.kind !== 'local') return null;
+    return this.accounts.toPublic(identity);
+  }
+
+  createLocalActor(input: { name: string; tag?: string; avatarUrl?: string }): { token: string; identity: PublicIdentity } {
+    if (!this.accounts) throw new Error('Local identities require a durable account store.');
+    const created = this.accounts.createLocalIdentity(input);
+    return { token: created.token, identity: this.accounts.toPublic(created.identity) };
+  }
+
   logout(cookieHeader?: string): void {
-    const token = parseCookies(cookieHeader)[SESSION_COOKIE];
-    if (token) this.sessions.delete(this.hashToken(token));
+    const cookies = parseCookies(cookieHeader);
+    if (cookies[SESSION_COOKIE]) {
+      const key = this.hashToken(cookies[SESSION_COOKIE]);
+      this.sessions.delete(key);
+      this.accounts?.deleteSession(key);
+    }
+    if (cookies[LOCAL_COOKIE]) {
+      this.accounts?.deleteSession(this.hashToken(cookies[LOCAL_COOKIE]));
+    }
   }
 
   createPairing(): { id: string; secret: string } {
@@ -114,10 +163,7 @@ export class AuthService {
     }
     this.pairings.delete(id);
     const token = randomBytes(32).toString('base64url');
-    this.sessions.set(this.hashToken(token), {
-      profile: pairing.profile,
-      expiresAt: Date.now() + SESSION_DURATION_MS
-    });
+    this.rememberGoogleSession(token, pairing.profile);
     return { token, profile: pairing.profile };
   }
 
@@ -125,8 +171,24 @@ export class AuthService {
     return `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${SESSION_DURATION_MS / 1000}${secure ? '; Secure' : ''}`;
   }
 
+  localCookie(token: string, secure = false): string {
+    return `${LOCAL_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${LOCAL_DURATION_MS / 1000}${secure ? '; Secure' : ''}`;
+  }
+
   clearCookie(secure = false): string {
     return `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
+  }
+
+  clearLocalCookie(secure = false): string {
+    return `${LOCAL_COOKIE}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
+  }
+
+  private rememberGoogleSession(token: string, profile: AuthProfile): void {
+    this.sessions.set(this.hashToken(token), {
+      profile,
+      expiresAt: Date.now() + SESSION_DURATION_MS
+    });
+    this.accounts?.putGoogleSession(token, profile.id);
   }
 
   private hashToken(token: string): string {
