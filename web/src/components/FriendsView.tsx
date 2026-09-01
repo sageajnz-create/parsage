@@ -1,56 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { Friend } from '../types';
 import { Users, UserPlus, Play, Share2, Trash2, UserCheck } from 'lucide-react';
+import { addFriend, listFriends, removeFriend, type FriendRecord } from '../api/account';
 
 interface FriendsViewProps {
   onJoinRoom: (roomCode: string) => void;
   onInviteFriend: (friendName: string) => void;
+  onOpenAuth: () => void;
 }
 
-const STORAGE_KEY = 'parsage_friends_list';
-
-export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFriend }) => {
-  const [friends, setFriends] = useState<Friend[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return [];
-  });
-
+export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFriend, onOpenAuth }) => {
+  const [friends, setFriends] = useState<FriendRecord[]>([]);
   const [friendTagInput, setFriendTagInput] = useState('');
   const [invited, setInvited] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const refresh = async () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(friends));
-    } catch (e) {}
-  }, [friends]);
-
-  const handleAddFriend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!friendTagInput.trim()) return;
-    const parts = friendTagInput.trim().split('#');
-    const name = parts[0] || 'Friend';
-    const tag = parts[1] || Math.floor(1000 + Math.random() * 9000).toString();
-
-    const newFriend: Friend = {
-      id: `f-${Date.now()}`,
-      name,
-      tag,
-      avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=1b1a17`,
-      status: 'offline'
-    };
-
-    setFriends(prev => [newFriend, ...prev]);
-    setFriendTagInput('');
+      setFriends(await listFriends());
+      setError(null);
+    } catch (loadError: any) {
+      setError(loadError.message || 'Unable to load friends.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRemoveFriend = (id: string) => {
+  useEffect(() => { refresh(); }, []);
+
+  const handleAddFriend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!friendTagInput.trim()) return;
+    try {
+      const friend = await addFriend(friendTagInput.trim());
+      setFriends(previous => [friend, ...previous.filter(item => item.id !== friend.id)]);
+      setFriendTagInput('');
+      setError(null);
+    } catch (addError: any) {
+      setError(addError.message || 'Unable to add that friend.');
+    }
+  };
+
+  const handleRemoveFriend = async (id: string) => {
+    await removeFriend(id);
     setFriends(prev => prev.filter(f => f.id !== id));
   };
 
-  const handleInvite = (friend: Friend) => {
+  const handleInvite = (friend: FriendRecord) => {
     onInviteFriend(friend.name);
     setInvited(prev => ({ ...prev, [friend.id]: true }));
     setTimeout(() => {
@@ -58,7 +54,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
     }, 2000);
   };
 
-  const getStatusColor = (status: Friend['status']) => {
+  const getStatusColor = (status: FriendRecord['status']) => {
     if (status === 'hosting') return 'var(--reggae-gold)';
     if (status === 'in-game') return 'var(--zion-teal-bright)';
     if (status === 'online') return 'var(--reggae-green-bright)';
@@ -67,24 +63,26 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-      {/* Add Friend Header Bar */}
       <div className="card" style={{ padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Users size={26} color="var(--reggae-green-bright)" />
+            <Users size={26} color="var(--reggae-green-bright)" aria-hidden="true" />
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Friends & Party</h2>
           </div>
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', marginTop: '2px' }}>
-            Add your buddies by Username#Tag to invite them to couch co-op sessions.
+            Add a verified Parsage identity by Username#Tag. Presence is live on this host, not a local-only list.
           </p>
         </div>
 
         <form onSubmit={handleAddFriend} style={{ display: 'flex', gap: '8px', minWidth: '320px' }}>
+          <label htmlFor="friend-handle" className="sr-only">Friend handle</label>
           <input
+            id="friend-handle"
             type="text"
             value={friendTagInput}
             onChange={(e) => setFriendTagInput(e.target.value)}
             placeholder="Add Friend (e.g. Bro#0420)"
+            autoComplete="off"
             style={{
               flex: 1,
               background: 'var(--bg-input)',
@@ -96,19 +94,29 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
             }}
           />
           <button type="submit" className="btn btn-primary" disabled={!friendTagInput.trim()}>
-            <UserPlus size={16} />
+            <UserPlus size={16} aria-hidden="true" />
             <span>Add Friend</span>
           </button>
         </form>
       </div>
 
-      {/* Friends List */}
+      {error && (
+        <div role="alert" style={{ background: 'rgba(232, 17, 45, 0.15)', border: '1px solid var(--reggae-red)', color: 'var(--reggae-red-bright)', padding: '14px 18px', borderRadius: '8px' }}>
+          {error}{' '}
+          <button className="btn btn-secondary" onClick={onOpenAuth} style={{ marginLeft: '8px', padding: '6px 10px', fontSize: '0.8rem' }}>
+            Open profile
+          </button>
+        </div>
+      )}
+
       <div className="card" style={{ padding: '24px' }}>
         <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--fg-bright)', marginBottom: '16px' }}>
           ALL FRIENDS ({friends.length})
         </h3>
 
-        {friends.length === 0 ? (
+        {loading ? (
+          <p style={{ color: 'var(--fg-muted)' }}>Loading friends from the durable store…</p>
+        ) : friends.length === 0 ? (
           <div style={{
             background: 'var(--bg-input)',
             borderRadius: '10px',
@@ -116,10 +124,10 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
             textAlign: 'center',
             border: '1px dashed var(--border-muted)'
           }}>
-            <Users size={48} color="var(--border-muted)" style={{ margin: '0 auto 16px auto' }} />
+            <Users size={48} color="var(--border-muted)" style={{ margin: '0 auto 16px auto' }} aria-hidden="true" />
             <h4 style={{ fontSize: '1.15rem', color: 'var(--fg-bright)', marginBottom: '6px' }}>No Friends Added Yet</h4>
             <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', maxWidth: '420px', margin: '0 auto' }}>
-              Type your friend's name and tag above (e.g. <code>Bro#0420</code>) and hit <strong>Add Friend</strong> to invite them to game sessions!
+              Both of you need a saved Parsage identity on this host. Then add them as <code>Name#Tag</code>.
             </p>
           </div>
         ) : (
@@ -143,7 +151,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
                   <div style={{ position: 'relative' }}>
                     <img
                       src={friend.avatarUrl}
-                      alt={friend.name}
+                      alt=""
                       style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid var(--border-muted)', background: '#151412' }}
                     />
                     <div style={{
@@ -155,7 +163,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
                       borderRadius: '50%',
                       backgroundColor: getStatusColor(friend.status),
                       border: '2px solid var(--bg-input)'
-                    }} />
+                    }} aria-hidden="true" />
                   </div>
 
                   <div>
@@ -163,14 +171,13 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
                       {friend.name} <span style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', fontWeight: 'normal' }}>#{friend.tag}</span>
                     </div>
                     <div style={{ fontSize: '0.78rem', color: getStatusColor(friend.status), fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {friend.status === 'hosting' ? `⚡ Hosting ${friend.currentGame || 'Game'}` :
-                       friend.status === 'in-game' ? `🎮 Playing ${friend.currentGame || 'Game'}` :
-                       friend.status === 'online' ? '● Online' : '○ Offline'}
+                      {friend.status === 'hosting' ? `Hosting ${friend.currentGame || 'a session'}` :
+                       friend.status === 'in-game' ? `Playing ${friend.currentGame || 'a session'}` :
+                       friend.status === 'online' ? 'Online' : 'Offline'}
                     </div>
                   </div>
                 </div>
 
-                {/* Actions */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {friend.roomCode && (
                     <button
@@ -178,7 +185,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
                       onClick={() => onJoinRoom(friend.roomCode!)}
                       style={{ padding: '7px 14px', fontSize: '0.82rem' }}
                     >
-                      <Play size={14} />
+                      <Play size={14} aria-hidden="true" />
                       <span>Join Game</span>
                     </button>
                   )}
@@ -188,16 +195,16 @@ export const FriendsView: React.FC<FriendsViewProps> = ({ onJoinRoom, onInviteFr
                     onClick={() => handleInvite(friend)}
                     style={{ padding: '7px 14px', fontSize: '0.82rem' }}
                   >
-                    {invited[friend.id] ? <UserCheck size={14} color="var(--reggae-green-bright)" /> : <Share2 size={14} />}
+                    {invited[friend.id] ? <UserCheck size={14} color="var(--reggae-green-bright)" aria-hidden="true" /> : <Share2 size={14} aria-hidden="true" />}
                     <span>{invited[friend.id] ? 'Invite Sent!' : 'Invite to Play'}</span>
                   </button>
 
                   <button
                     onClick={() => handleRemoveFriend(friend.id)}
                     style={{ background: 'transparent', border: 'none', color: 'var(--fg-muted)', cursor: 'pointer', padding: '6px' }}
-                    title="Remove Friend"
+                    aria-label={`Remove ${friend.handle}`}
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={16} aria-hidden="true" />
                   </button>
                 </div>
               </div>

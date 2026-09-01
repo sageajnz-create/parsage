@@ -58,3 +58,19 @@ test('pairs an externally authenticated browser with a desktop session once', as
   assert.equal(claimed?.profile.id, 'pair-user');
   assert.equal(auth.claimPairing(pairing.id, pairing.secret), null);
 });
+
+test('persists Google sessions across AuthService instances sharing a store', async () => {
+  const { DurableStore } = await import('./store.js');
+  const { AccountRegistry } = await import('./account.js');
+  const store = DurableStore.memory();
+  const accounts = new AccountRegistry(store);
+  const first = new AuthService(clientId, async () => ({
+    iss: 'https://accounts.google.com', aud: clientId, sub: 'persist-user',
+    email: 'persist@example.com', email_verified: true, name: 'Persist', iat: 1, exp: 2
+  }), accounts);
+  const login = await first.login('credential');
+  const cookie = first.sessionCookie(login.token);
+  const second = new AuthService(clientId, async () => undefined, accounts);
+  assert.equal(second.getProfile(cookie)?.id, 'persist-user');
+  assert.equal(second.getActor(cookie)?.handle.startsWith('Persist#'), true);
+});

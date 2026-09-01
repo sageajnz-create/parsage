@@ -30,10 +30,10 @@ export function useAuth() {
     setProfile({
       id: serverProfile.id,
       name: serverProfile.name || 'Google User',
-      tag: String(serverProfile.id).slice(-4),
+      tag: serverProfile.tag || String(serverProfile.id).slice(-4),
       email: serverProfile.email,
       avatarUrl: serverProfile.avatarUrl || DEFAULT_PROFILE.avatarUrl,
-      isGoogleAuth: true,
+      isGoogleAuth: serverProfile.kind ? serverProfile.kind === 'google' : true,
       status: 'online'
     });
     setAuthError(null);
@@ -72,10 +72,26 @@ export function useAuth() {
     Promise.all([
       fetch('/api/auth/config', { credentials: 'same-origin' }).then(response => response.json()),
       fetch('/api/auth/me', { credentials: 'same-origin' }).then(response => response.json())
-    ]).then(([config, session]) => {
+    ]).then(async ([config, session]) => {
       setAuthConfigured(Boolean(config.configured));
       setGoogleClientId(config.clientId || null);
-      if (session.profile) applyServerProfile(session.profile);
+      if (session.profile) {
+        applyServerProfile({ ...session.profile, kind: 'google', tag: session.actor?.tag });
+        return;
+      }
+      if (session.actor) {
+        applyServerProfile(session.actor);
+        return;
+      }
+      const local = localProfile();
+      const saved = await fetch('/api/account/local', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: local.name, tag: local.tag, avatarUrl: local.avatarUrl })
+      });
+      const data = await saved.json();
+      if (saved.ok && data.actor) applyServerProfile(data.actor);
     }).catch(() => setAuthError('Unable to check authentication service.'));
   }, [applyServerProfile]);
 
@@ -167,8 +183,21 @@ export function useAuth() {
   }, [profile]);
 
   const updateProfile = useCallback((updates: Partial<UserProfile>) => {
-    setProfile(previous => ({ ...previous, ...updates }));
-  }, []);
+    setProfile(previous => {
+      const next = { ...previous, ...updates };
+      if (!next.isGoogleAuth) {
+        fetch('/api/account/local', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: next.name, tag: next.tag, avatarUrl: next.avatarUrl })
+        }).then(response => response.json()).then(data => {
+          if (data.actor) applyServerProfile(data.actor);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  }, [applyServerProfile]);
 
   const logout = useCallback(async () => {
     try {

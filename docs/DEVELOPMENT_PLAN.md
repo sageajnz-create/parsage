@@ -49,9 +49,13 @@ Implementation note: Linux `KeyboardEvent.code` mapping, relative/coalesced mous
 
 ## 5. Productize releases
 
-- Persist identity, devices, friendships, and presence in a durable store.
-- Add expiring/revocable quick links, structured logs, and support bundles.
-- Test install, upgrade, service lifecycle, and uninstall on each supported distribution.
-- Add crash recovery, update delivery, accessibility checks, and a maintained client matrix.
+Status: implemented without a live distro farm.
 
-Gate: release CI produces tested artifacts and a clean install/update/uninstall report for every supported target.
+- [x] Persist identity, devices, friendships, and presence in a durable store.
+- [x] Add expiring/revocable quick links, structured logs, and support bundles.
+- [x] Test install, upgrade, service lifecycle, and uninstall for the existing `.deb` and `install.sh` paths in CI (prefix extract; not a multi-distro dpkg farm).
+- [x] Add crash recovery, update delivery, accessibility checks, and a maintained client matrix sourced from real gates.
+
+Remaining outside this phase: live Mint/Arch/Fedora package farms and TURN soak.
+
+Gate: release CI produces tested artifacts and a clean install/update/uninstall report for the packaged `.deb` / `install.sh` path. Live distro-farm reports are still out of scope.

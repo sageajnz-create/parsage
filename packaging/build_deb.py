@@ -88,6 +88,18 @@ Description: {DESCRIPTION}
     ]
     prerm_content = "\n".join(prerm_lines)
 
+    postrm_lines = [
+        "#!/bin/sh",
+        "set -e",
+        'if [ "$1" = "purge" ]; then',
+        "  rm -f /etc/udev/rules.d/99-parsage-uinput.rules",
+        "  rm -f /usr/local/bin/parsage",
+        "  udevadm control --reload-rules 2>/dev/null || true",
+        "fi",
+        "exit 0\n"
+    ]
+    postrm_content = "\n".join(postrm_lines)
+
     control_tar_io = io.BytesIO()
     with tarfile.open(fileobj=control_tar_io, mode="w:gz") as tar:
         ti = tarfile.TarInfo("./control")
@@ -104,6 +116,11 @@ Description: {DESCRIPTION}
         ti_pre.size = len(prerm_content.encode("utf-8"))
         ti_pre.mode = 0o755
         tar.addfile(ti_pre, io.BytesIO(prerm_content.encode("utf-8")))
+
+        ti_postrm = tarfile.TarInfo("./postrm")
+        ti_postrm.size = len(postrm_content.encode("utf-8"))
+        ti_postrm.mode = 0o755
+        tar.addfile(ti_postrm, io.BytesIO(postrm_content.encode("utf-8")))
 
     control_tar_gz = control_tar_io.getvalue()
 
@@ -155,6 +172,14 @@ Description: {DESCRIPTION}
             ti.size = os.path.getsize(desktop_src)
             ti.mode = 0o644
             with open(desktop_src, "rb") as sf:
+                tar.addfile(ti, sf)
+
+        service_src = os.path.join(SCRIPT_DIR, "parsage-deb.service")
+        if os.path.exists(service_src):
+            ti = tarfile.TarInfo("./usr/lib/systemd/user/parsage.service")
+            ti.size = os.path.getsize(service_src)
+            ti.mode = 0o644
+            with open(service_src, "rb") as sf:
                 tar.addfile(ti, sf)
 
     data_tar_gz = data_tar_io.getvalue()

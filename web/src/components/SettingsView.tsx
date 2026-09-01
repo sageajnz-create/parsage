@@ -396,10 +396,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <form onSubmit={handleProfileSave} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
+              <label htmlFor="settings-gamer-name" style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
                 Gamer Display Name:
               </label>
               <input
+                id="settings-gamer-name"
                 type="text"
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
@@ -408,10 +409,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
+              <label htmlFor="settings-gamer-tag" style={{ display: 'block', fontSize: '0.85rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>
                 Gamer Tag (4 digits):
               </label>
               <input
+                id="settings-gamer-tag"
                 type="text"
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}

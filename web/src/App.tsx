@@ -12,11 +12,13 @@ import { DiagnosticsView } from './components/DiagnosticsView';
 import { HostView } from './components/HostView';
 import { ClientView } from './components/ClientView';
 import { AuthModal } from './components/AuthModal';
+import { resolveQuickLink } from './api/account';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<MainView>('computers');
   const [handledJoinLink, setHandledJoinLink] = useState(false);
   const [pendingJoinCode, setPendingJoinCode] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const {
     profile,
@@ -78,7 +80,19 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!wsConnected || handledJoinLink || roomState) return;
-    const joinParam = new URLSearchParams(window.location.search).get('join');
+    const params = new URLSearchParams(window.location.search);
+    const joinParam = params.get('join');
+    const linkParam = params.get('link');
+    if (linkParam) {
+      resolveQuickLink(linkParam)
+        .then(({ roomCode }) => {
+          setPendingJoinCode(roomCode);
+          joinRoom(roomCode, profile.name);
+        })
+        .catch((error: Error) => setLinkError(error.message));
+      setHandledJoinLink(true);
+      return;
+    }
     if (joinParam) {
       setPendingJoinCode(joinParam.trim().toUpperCase());
       joinRoom(joinParam, profile.name);
@@ -103,6 +117,7 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-deep)' }}>
+      <a className="skip-link" href="#parsage-main">Skip to main content</a>
       {/* Sidebar */}
       <Sidebar
         currentView={currentView}
@@ -115,7 +130,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main App Workspace */}
-      <main style={{ flex: 1, padding: '32px 36px', overflowY: 'auto', maxHeight: '100vh', position: 'relative' }}>
+      <main id="parsage-main" style={{ flex: 1, padding: '32px 36px', overflowY: 'auto', maxHeight: '100vh', position: 'relative' }}>
         {/* If Host is broadcasting in computers view, show Host Control Center */}
         {roomState && isHost && currentView === 'computers' ? (
           <HostView
@@ -169,7 +184,7 @@ export const App: React.FC = () => {
                 onJoinRoom={handleJoinSpecificRoom}
                 onOpenSettings={() => setCurrentView('settings')}
                 pendingJoinCode={pendingJoinCode}
-                errorMsg={errorMsg}
+                errorMsg={errorMsg || linkError}
               />
             )}
 
@@ -184,6 +199,7 @@ export const App: React.FC = () => {
               <FriendsView
                 onJoinRoom={handleJoinSpecificRoom}
                 onInviteFriend={(name) => sendChat(`Hey ${name}, join my Parsage session!`)}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
               />
             )}
 

@@ -5,6 +5,7 @@ import {
   Volume2, Shield, UserX, Gamepad2, MousePointer, Wifi, ShieldAlert,
   UserCheck, Sliders, Monitor, Zap, MessageSquare, Send
 } from 'lucide-react';
+import { createQuickLink, revokeQuickLink } from '../api/account';
 
 interface HostViewProps {
   roomState: RoomState | null;
@@ -52,6 +53,8 @@ export const HostView: React.FC<HostViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [copiedLan, setCopiedLan] = useState(false);
   const [chatInput, setChatInput] = useState('');
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
 
@@ -80,20 +83,39 @@ export const HostView: React.FC<HostViewProps> = ({
     if (viewer) await onStartNativeCapture(viewer.id, targetFps, maxBitrate);
   };
 
-  const copyRoomLink = () => {
+  const copyRoomLink = async () => {
     if (!roomState) return;
-    const url = `${window.location.origin}/?join=${roomState.roomCode}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    try {
+      const created = await createQuickLink(roomState.roomCode);
+      await navigator.clipboard.writeText(`${window.location.origin}${created.url}`);
+      setShareToken(created.token);
+      setCopied(true);
+      setShareError(null);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (error: any) {
+      setShareError(error.message || 'Unable to create an expiring share link.');
+    }
   };
 
-  const copyLanLink = (ip: string) => {
+  const copyLanLink = async (ip: string) => {
     if (!roomState) return;
-    const url = `http://${ip}:7777/?join=${roomState.roomCode}`;
-    navigator.clipboard.writeText(url);
-    setCopiedLan(true);
-    setTimeout(() => setCopiedLan(false), 2500);
+    try {
+      const created = shareToken
+        ? { token: shareToken, url: `/?link=${encodeURIComponent(shareToken)}` }
+        : await createQuickLink(roomState.roomCode);
+      if (!shareToken) setShareToken(created.token);
+      await navigator.clipboard.writeText(`http://${ip}:7777${created.url}`);
+      setCopiedLan(true);
+      setTimeout(() => setCopiedLan(false), 2500);
+    } catch (error: any) {
+      setShareError(error.message || 'Unable to create a LAN share link.');
+    }
+  };
+
+  const handleRevokeShare = async () => {
+    if (!shareToken) return;
+    await revokeQuickLink(shareToken);
+    setShareToken(null);
   };
 
   const handleChatSubmit = (e: React.FormEvent) => {
@@ -130,9 +152,17 @@ export const HostView: React.FC<HostViewProps> = ({
         {roomState && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={copyRoomLink}>
-              {copied ? <Check size={18} /> : <Copy size={18} />}
-              <span>{copied ? 'Link Copied!' : `Copy P2P Room Link (${roomState.roomCode})`}</span>
+              {copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+              <span>{copied ? 'Expiring link copied' : `Copy expiring share link (${roomState.roomCode})`}</span>
             </button>
+            {shareToken && (
+              <button className="btn btn-secondary" onClick={handleRevokeShare}>
+                Revoke share links
+              </button>
+            )}
+            {shareError && (
+              <p role="alert" style={{ color: 'var(--reggae-red-bright)', width: '100%', fontSize: '0.85rem' }}>{shareError}</p>
+            )}
           </div>
         )}
       </div>
@@ -445,7 +475,7 @@ export const HostView: React.FC<HostViewProps> = ({
                 <div>
                   <span style={{ fontSize: '0.75rem', color: 'var(--fg-muted)' }}>LAN DIRECT URL (0ms Internet Lag):</span>
                   <div className="font-mono" style={{ color: 'var(--zion-teal-bright)', fontSize: '0.85rem' }}>
-                    http://{lanIps[0]}:7777/?join={roomState.roomCode}
+                    http://{lanIps[0]}:7777/?link=… (expiring)
                   </div>
                 </div>
                 <button className="btn btn-secondary" onClick={() => copyLanLink(lanIps[0])} style={{ padding: '6px 12px', fontSize: '0.78rem' }}>

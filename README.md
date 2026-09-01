@@ -63,7 +63,8 @@ parsage
 - `parsage native-status` — Inspect native PipeWire, WebRTC, and encoder support
 - `parsage native-benchmark` — Select a screen and measure native H.264 encoding
 - `parsage native-webrtc-test` — Verify capture, encode, ICE/DTLS/SRTP, and RTP reception locally
-- `parsage uinput-setup` — Configure non-root udev rules for virtual controllers
+- `parsage support-bundle` — Write a local diagnostics JSON file (no secrets)
+- `parsage check-update` — Compare this install to the latest GitHub release
 
 ---
 
@@ -92,7 +93,7 @@ cd .. && npm test
 
 The server tests and web build run on Linux, macOS, and Windows. Host tests can exercise pipeline construction without GStreamer; live PipeWire capture and native WebRTC commands require the Linux packages declared by the Debian package in `packaging/build_deb.py`.
 
-See [Development plan](docs/DEVELOPMENT_PLAN.md) for the prioritized delivery sequence and acceptance gates.
+See [Development plan](docs/DEVELOPMENT_PLAN.md) for the prioritized delivery sequence and [client matrix](docs/CLIENT_MATRIX.md) for what CI actually covers.
 
 ---
 
