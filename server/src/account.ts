@@ -165,11 +165,11 @@ export class AccountRegistry {
   }
 
   findByHandle(handle: string): StoredIdentity | null {
-    const normalized = handle.trim().replace(/\s+/g, '');
-    const match = normalized.match(/^(.+)#([A-Za-z0-9]{2,8})$/);
-    if (!match) return null;
-    const name = match[1];
-    const tag = match[2].toUpperCase();
+    const separator = handle.trim().lastIndexOf('#');
+    if (separator <= 0) return null;
+    const name = handle.slice(0, separator).trim();
+    const tag = handle.slice(separator + 1).trim().toUpperCase();
+    if (name.length === 0 || tag.length < 2) return null;
     const data = this.store.snapshot();
     return Object.values(data.identities).find(
       identity => identity.name.toLowerCase() === name.toLowerCase() && identity.tag.toUpperCase() === tag

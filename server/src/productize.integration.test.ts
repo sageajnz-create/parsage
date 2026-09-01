@@ -121,7 +121,7 @@ test('account APIs persist friends, devices, presence, and revocable quick links
   });
   assert.equal(linkResponse.status, 200);
   const link = await linkResponse.json() as { token: string; url: string; expiresAt: number };
-  assert.match(link.url, /^\?link=/);
+  assert.match(link.url, /^\/\?link=/);
 
   const resolved = await fetch(`${origin}/api/quick-links/${encodeURIComponent(link.token)}`);
   assert.equal(resolved.status, 200);

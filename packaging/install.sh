@@ -45,14 +45,16 @@ elif [ "$SKIP_DEPS" != "1" ] && command -v pacman &>/dev/null; then
 fi
 
 echo -e "\n${BOLD}${TEAL}[2/4] Checking /dev/uinput permissions for gamepads...${NC}"
-if python3 -c 'import os; os.close(os.open("/dev/uinput", os.O_WRONLY|os.O_NONBLOCK))' 2>/dev/null; then
+if [ "$SKIP_DEPS" = "1" ]; then
+    echo -e "${GOLD}Skipping uinput udev setup (PARSAGE_SKIP_DEPS=1).${NC}"
+elif python3 -c 'import os; os.close(os.open("/dev/uinput", os.O_WRONLY|os.O_NONBLOCK))' 2>/dev/null; then
     echo -e "${GREEN}✅ /dev/uinput is already writable by current user!${NC}"
 else
     UDEV_RULE='/etc/udev/rules.d/99-parsage-uinput.rules'
     if [ ! -f "$UDEV_RULE" ]; then
         if sudo -n true 2>/dev/null || [ -t 0 ]; then
             echo "Installing udev rule for zero-latency virtual Xbox 360 gamepads..."
-            sudo bash -c 'echo "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"input\", TAG+=\"uaccess\"" > /etc/udev/rules.d/99-parsage-uinput.rules'
+            sudo bash -c 'echo "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"input\", TAG+=\"uaccess\"" > /etc/udev/rules.d/99-parsage-uinput.rules' || true
             sudo udevadm control --reload-rules && sudo udevadm trigger || true
             if ! groups "$USER" | grep -q '\binput\b'; then
                 sudo usermod -aG input "$USER" || true
