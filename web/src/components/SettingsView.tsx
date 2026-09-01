@@ -144,6 +144,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <option value="hevc">HEVC / H.265 (High Efficiency)</option>
                 <option value="av1">AV1 (Next-Gen Quality)</option>
               </select>
+              <p style={{ color: 'var(--fg-muted)', fontSize: '0.75rem', marginTop: '6px' }}>
+                H.264 is always tried first. HEVC and AV1 are used only if both the host and the viewer report them.
+              </p>
             </div>
 
             <div>

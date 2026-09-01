@@ -6,6 +6,23 @@ interface StatsOverlayProps {
   stats: StreamStats;
 }
 
+function formatMs(value?: number | null) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+  return `${value.toFixed(1)} ms`;
+}
+
+function stageLabel(stage?: string | null) {
+  if (!stage) return '—';
+  const labels: Record<string, string> = {
+    captureMs: 'capture',
+    encodeMs: 'encode',
+    networkMs: 'network',
+    decodeMs: 'decode',
+    presentMs: 'present'
+  };
+  return labels[stage] || stage.replace(/Ms$/, '');
+}
+
 export const StatsOverlay: React.FC<StatsOverlayProps> = ({ stats }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -89,9 +106,26 @@ export const StatsOverlay: React.FC<StatsOverlayProps> = ({ stats }) => {
             {stats.codec}
           </div>
 
-          <div style={{ color: 'var(--fg-muted)' }}>Decode Time:</div>
+          <div style={{ color: 'var(--fg-muted)' }}>Capture:</div>
+          <div style={{ textAlign: 'right' }}>{formatMs(stats.captureMs)}</div>
+
+          <div style={{ color: 'var(--fg-muted)' }}>Encode:</div>
+          <div style={{ textAlign: 'right' }}>{formatMs(stats.encodeMs)}</div>
+
+          <div style={{ color: 'var(--fg-muted)' }}>Network:</div>
+          <div style={{ textAlign: 'right' }}>{formatMs(stats.networkMs)}</div>
+
+          <div style={{ color: 'var(--fg-muted)' }}>Decode:</div>
           <div style={{ textAlign: 'right' }}>
-            {stats.decodeMs} ms
+            {formatMs(stats.decodeMs)}
+          </div>
+
+          <div style={{ color: 'var(--fg-muted)' }}>Present:</div>
+          <div style={{ textAlign: 'right' }}>{formatMs(stats.presentMs)}</div>
+
+          <div style={{ color: 'var(--fg-muted)' }}>Slowest stage:</div>
+          <div style={{ textAlign: 'right', color: 'var(--reggae-gold)' }}>
+            {stageLabel(stats.dominantStage)}
           </div>
 
           <div style={{ color: 'var(--fg-muted)' }}>Jitter:</div>

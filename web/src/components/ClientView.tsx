@@ -19,6 +19,8 @@ interface ClientViewProps {
   onSendReaction: (emoji: string) => void;
   wsConnected: boolean;
   errorMsg: string | null;
+  mediaPeerConnection?: RTCPeerConnection | null;
+  nativeLatency?: { captureMs?: number | null; encodeMs?: number | null; codec?: string };
 }
 
 export const ClientView: React.FC<ClientViewProps> = ({
@@ -33,7 +35,9 @@ export const ClientView: React.FC<ClientViewProps> = ({
   onSendChat,
   onSendReaction,
   wsConnected,
-  errorMsg
+  errorMsg,
+  mediaPeerConnection = null,
+  nativeLatency
 }) => {
   const [roomCode, setRoomCode] = useState('');
   const [guestName, setGuestName] = useState('Buddy');
@@ -47,7 +51,7 @@ export const ClientView: React.FC<ClientViewProps> = ({
   const { gamepads, activeGamepadIndex, packGamepadState } = useGamepad();
   const activePad = gamepads.find(g => g.index === activeGamepadIndex) || gamepads[0];
 
-  const stats = useStats(remoteStream);
+  const stats = useStats(remoteStream, mediaPeerConnection, nativeLatency);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

@@ -111,6 +111,11 @@ export interface StreamStats {
   resolution: string;
   codec: string;
   decodeMs: number;
+  captureMs?: number | null;
+  encodeMs?: number | null;
+  networkMs?: number | null;
+  presentMs?: number | null;
+  dominantStage?: string | null;
 }
 
 export interface GamepadState {

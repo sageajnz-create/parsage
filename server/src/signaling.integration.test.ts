@@ -184,6 +184,10 @@ test('approval gates RTC, cross-room administration, and reconnect resumption', 
   const forwarded = await host.client.waitFor('offer', message => message.fromPeerId === guestId);
   assert.equal(forwarded.sdp.sdp, 'allowed');
 
+  guest.client.send({ type: 'media-capabilities', targetPeerId: hostId, codecs: ['h264', 'hevc'] });
+  const caps = await host.client.waitFor('media-capabilities', message => message.fromPeerId === guestId);
+  assert.deepEqual(caps.codecs, ['h264', 'hevc']);
+
   outsider.client.send({ type: 'offer', targetPeerId: guestId, sdp: { type: 'offer', sdp: 'cross-room' } });
   const crossRoomError = await outsider.client.waitFor('error');
   assert.match(crossRoomError.message, /not authorized/);

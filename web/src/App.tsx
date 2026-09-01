@@ -52,6 +52,8 @@ export const App: React.FC = () => {
     chatMessages,
     reactions,
     lanIps,
+    mediaPeerConnection,
+    nativeLatency,
     startScreenCapture,
     startNativeCapture,
     stopNativeCapture,
@@ -123,7 +125,10 @@ export const App: React.FC = () => {
             lanIps={lanIps}
             chatMessages={chatMessages}
             onCreateRoom={handleStartHostingSession}
-            onStartCapture={startScreenCapture}
+            onStartCapture={(fps, resolution, maxBitrateMbps) => startScreenCapture(fps, resolution, maxBitrateMbps, {
+              preferredCodec: settings.client.codec,
+              adaptiveBitrate: settings.host.adaptiveBitrate
+            })}
             onStartNativeCapture={startNativeCapture}
             onStopNativeCapture={stopNativeCapture}
             nativeMediaStatus={nativeMediaStatus}
@@ -149,6 +154,8 @@ export const App: React.FC = () => {
             onSendReaction={sendReaction}
             wsConnected={wsConnected}
             errorMsg={errorMsg}
+            mediaPeerConnection={mediaPeerConnection}
+            nativeLatency={nativeLatency}
           />
         ) : (
           /* Navigation Tabs */

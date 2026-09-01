@@ -180,11 +180,24 @@ if (!gotTheLock) {
       const targetPeerId = typeof options.targetPeerId === 'string' ? options.targetPeerId : '';
       const fps = Number.isInteger(options.fps) && options.fps >= 15 && options.fps <= 240 ? options.fps : 60;
       const bitrate = Number.isInteger(options.bitrate) && options.bitrate >= 2 && options.bitrate <= 100 ? options.bitrate : 25;
+      const allowedCodecs = new Set(['h264', 'hevc', 'av1']);
+      const codecs = Array.isArray(options.codecs)
+        ? options.codecs.filter((codec) => allowedCodecs.has(String(codec)))
+        : ['h264'];
+      const preference = allowedCodecs.has(options.preference) || options.preference === 'auto'
+        ? options.preference
+        : 'h264';
       if (!/^peer-[a-z0-9-]+$/.test(targetPeerId)) return { ok: false, error: 'Invalid target peer.' };
       stopNativePeer();
       const script = path.join(ROOT_DIR, 'host', 'native_pipeline.py');
       nativePeerOwner = targetPeerId;
-      nativePeerProcess = spawn('python3', [script, 'webrtc-peer', '--fps', String(fps), '--bitrate', String(bitrate)], {
+      nativePeerProcess = spawn('python3', [
+        script, 'webrtc-peer',
+        '--fps', String(fps),
+        '--bitrate', String(bitrate),
+        '--remote-codecs', codecs.join(',') || 'h264',
+        '--preference', preference
+      ], {
         cwd: ROOT_DIR,
         stdio: ['pipe', 'pipe', 'pipe']
       });

@@ -27,12 +27,12 @@ Gate: every P0 acceptance case in `PARITY_ROADMAP.md` has a repeatable command a
 
 ## 3. Make native media adaptive and observable
 
-- Negotiate H.264 first, then add HEVC/AV1 only when both peers advertise support.
-- Add sender pacing, loss-driven bitrate adaptation, and explicit keyframe recovery.
-- Measure capture, encode, network, decode, and present latency separately.
+- [x] Negotiate H.264 first, then add HEVC/AV1 only when both peers advertise support.
+- [x] Add sender pacing, loss-driven bitrate adaptation, and explicit keyframe recovery.
+- [x] Measure capture, encode, network, decode, and present latency separately.
 - Add GPU-specific 1080p60 quality gates and retain the browser capture fallback.
 
-Gate: a remote 1080p60 session stays below 25 Mbps without sustained frame loss, and telemetry identifies the dominant latency stage.
+Gate: a remote 1080p60 session stays below 25 Mbps without sustained frame loss, and telemetry identifies the dominant latency stage. The WAN soak and TURN-only NAT run still belong to Sage's network; automated unit tests cover codec choice, bitrate steps, and keyframe policy.
 
 ## 4. Harden input parity
 

@@ -8,6 +8,15 @@ import sys
 import threading
 import time
 
+from media_adapt import (
+    dominant_latency_stage,
+    encoder_codec_family,
+    next_bitrate_mbps,
+    rtp_encoding_name,
+    select_encoder,
+    should_force_keyframe,
+)
+
 try:
     import gi
 
@@ -47,21 +56,23 @@ def capabilities():
         Gst.init(None)
     encoders = {
         "h264_vaapi": element_available("vah264enc"),
-        "hevc_vaapi": element_available("vah265enc"),
         "h264_software": element_available("x264enc"),
+        "hevc_vaapi": element_available("vah265enc"),
+        "hevc_software": element_available("x265enc"),
+        "av1_vaapi": element_available("vaav1enc"),
+        "av1_software": element_available("rav1enc"),
     }
+    recommended, advertised = select_encoder(encoders, remote_codecs=None)
     return {
         "pipewire_source": element_available("pipewiresrc"),
         "webrtc_transport": element_available("webrtcbin"),
         "encoders": encoders,
+        "advertised_codecs": advertised,
         "render_node": next(
             (path for path in ("/dev/dri/renderD128", "/dev/dri/renderD129") if os.path.exists(path)),
             None,
         ),
-        "recommended_encoder": (
-            "h264_vaapi" if encoders["h264_vaapi"] else
-            "h264_software" if encoders["h264_software"] else None
-        ),
+        "recommended_encoder": recommended,
     }
 
 
@@ -141,41 +152,124 @@ def build_pipeline(fd, target_property, target, encoder, bitrate_kbps, fps):
     )
 
 
-def build_encoding_chain(fd, target_property, target, encoder, bitrate_kbps, fps):
-    source = (
-        f'pipewiresrc fd={fd} {target_property}="{target}" do-timestamp=true '
-        "! queue max-size-buffers=2 leaky=downstream "
-        f"! videoconvert ! videorate ! video/x-raw,format=NV12,framerate={fps}/1 "
-    )
+def build_encoder_fragment(encoder, bitrate_kbps, fps):
+    """Build the encoder + parser piece. Encoder is named video_encoder so we can
+    change bitrate or force a keyframe later without rebuilding the pipeline."""
     if encoder == "h264_vaapi":
-        encoding = (
-            f"! vah264enc bitrate={bitrate_kbps} rate-control=cbr target-usage=7 "
-            f"key-int-max={fps} ! video/x-h264,profile=main "
+        return (
+            f"! vah264enc name=video_encoder bitrate={bitrate_kbps} rate-control=cbr "
+            f"target-usage=7 key-int-max={fps} ! video/x-h264,profile=main ! h264parse "
         )
-    elif encoder == "h264_software":
-        encoding = (
-            f"! x264enc bitrate={bitrate_kbps} speed-preset=ultrafast tune=zerolatency "
-            f"key-int-max={fps} bframes=0 ! video/x-h264,profile=main "
+    if encoder == "h264_software":
+        return (
+            f"! x264enc name=video_encoder bitrate={bitrate_kbps} speed-preset=ultrafast "
+            f"tune=zerolatency key-int-max={fps} bframes=0 ! video/x-h264,profile=main ! h264parse "
+        )
+    if encoder == "hevc_vaapi":
+        return (
+            f"! vah265enc name=video_encoder bitrate={bitrate_kbps} rate-control=cbr "
+            f"target-usage=7 key-int-max={fps} ! video/x-h265,profile=main ! h265parse "
+        )
+    if encoder == "hevc_software":
+        return (
+            f"! x265enc name=video_encoder bitrate={bitrate_kbps} speed-preset=ultrafast "
+            f"tune=zerolatency key-int-max={fps} bframes=0 ! video/x-h265,profile=main ! h265parse "
+        )
+    if encoder == "av1_vaapi":
+        return (
+            f"! vaav1enc name=video_encoder bitrate={bitrate_kbps} rate-control=cbr "
+            f"target-usage=7 key-int-max={fps} ! av1parse "
+        )
+    if encoder == "av1_software":
+        return (
+            f"! rav1enc name=video_encoder bitrate={bitrate_kbps} speed-preset=1 "
+            f"key-int-max={fps} ! av1parse "
+        )
+    raise ValueError(f"Unsupported encoder: {encoder}")
+
+
+def pacing_payloader_fragment(encoder):
+    """Small leaky queue so encoded frames cannot pile up, then RTP packetize."""
+    encoding_name = rtp_encoding_name(encoder)
+    family = encoder_codec_family(encoder)
+    if family == "h264":
+        pay = (
+            "! rtph264pay name=payloader pt=96 config-interval=-1 aggregate-mode=zero-latency "
+            "! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 "
+        )
+    elif family == "hevc":
+        pay = (
+            "! rtph265pay name=payloader pt=96 config-interval=-1 aggregate-mode=zero-latency "
+            "! application/x-rtp,media=video,encoding-name=H265,payload=96,clock-rate=90000 "
+        )
+    elif family == "av1":
+        pay = (
+            "! rtpav1pay name=payloader pt=96 "
+            "! application/x-rtp,media=video,encoding-name=AV1,payload=96,clock-rate=90000 "
         )
     else:
         raise ValueError(f"Unsupported encoder: {encoder}")
-    return source + encoding + "! h264parse "
+    if encoding_name is None:
+        raise ValueError(f"Unsupported encoder: {encoder}")
+    return (
+        "! queue name=pacer max-size-buffers=2 leaky=downstream "
+        + pay
+    )
+
+
+def build_encoding_chain(fd, target_property, target, encoder, bitrate_kbps, fps):
+    source = (
+        f'pipewiresrc fd={fd} {target_property}="{target}" do-timestamp=true '
+        "! identity name=captured silent=true signal-handoffs=true "
+        "! queue max-size-buffers=2 leaky=downstream "
+        f"! videoconvert ! videorate ! video/x-raw,format=NV12,framerate={fps}/1 "
+        "! identity name=pre_encode silent=true signal-handoffs=true "
+    )
+    return source + build_encoder_fragment(encoder, bitrate_kbps, fps)
 
 
 def build_webrtc_loopback_pipeline(fd, target_property, target, encoder, bitrate_kbps, fps):
-    return add_webrtc_loopback(build_encoding_chain(
-        fd, target_property, target, encoder, bitrate_kbps, fps
-    ))
+    return add_webrtc_loopback(
+        build_encoding_chain(fd, target_property, target, encoder, bitrate_kbps, fps),
+        encoder,
+    )
 
 
-def add_webrtc_loopback(encoding_chain):
-    return encoding_chain + (
-        "! rtph264pay pt=96 config-interval=-1 aggregate-mode=zero-latency "
-        "! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 "
+def add_webrtc_loopback(encoding_chain, encoder="h264_software"):
+    return encoding_chain + pacing_payloader_fragment(encoder) + (
         "! webrtcbin name=sender bundle-policy=max-bundle "
         "webrtcbin name=receiver bundle-policy=max-bundle "
         "receiver. ! queue name=receive_queue ! fakesink name=received sync=false signal-handoffs=true"
     )
+
+
+def parse_remote_codecs(value):
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        tokens = value
+    else:
+        tokens = str(value).replace(";", ",").split(",")
+    codecs = [token.strip() for token in tokens if token and token.strip()]
+    return codecs or None
+
+
+def apply_encoder_bitrate(encoder_element, bitrate_mbps):
+    """Set the live encoder target. GStreamer bitrate properties are kbps."""
+    if encoder_element is None:
+        return None
+    kbps = int(round(float(bitrate_mbps) * 1000))
+    encoder_element.set_property("bitrate", kbps)
+    return kbps
+
+
+def force_encoder_keyframe(encoder_element):
+    if encoder_element is None or Gst is None:
+        return False
+    structure = Gst.Structure.new_empty("GstForceKeyUnit")
+    structure.set_value("all-headers", True)
+    event = Gst.Event.new_custom(Gst.EventType.CUSTOM_UPSTREAM, structure)
+    return bool(encoder_element.send_event(event))
 
 
 def emit_peer_message(message):
@@ -197,16 +291,57 @@ def parse_session_description(kind, sdp_text):
     return GstWebRTC.WebRTCSessionDescription.new(sdp_type, message)
 
 
+def choose_peer_encoder(args, caps):
+    if args.test_source:
+        return "h264_software", ["h264"]
+    remote_codecs = parse_remote_codecs(getattr(args, "remote_codecs", None))
+    preference = getattr(args, "preference", "h264") or "h264"
+    if args.encoder != "auto":
+        family = encoder_codec_family(args.encoder)
+        if remote_codecs is not None and family not in remote_codecs and family != "h264":
+            raise RuntimeError(
+                f"Encoder {args.encoder} was requested but the viewer did not advertise {family}."
+            )
+        if not caps["encoders"].get(args.encoder):
+            raise RuntimeError(f"Encoder is unavailable: {args.encoder}")
+        return args.encoder, [family] if family else ["h264"]
+    encoder, negotiated = select_encoder(caps["encoders"], remote_codecs, preference)
+    if not encoder:
+        raise RuntimeError("Encoder is unavailable: none")
+    return encoder, negotiated
+
+
+def test_source_chain(encoder, bitrate_kbps, fps):
+    return (
+        "videotestsrc is-live=true pattern=ball "
+        f"! video/x-raw,width=1280,height=720,framerate={fps}/1 "
+        "! videoconvert ! video/x-raw,format=NV12 "
+        + build_encoder_fragment(encoder, bitrate_kbps, fps)
+    )
+
+
+KEYFRAME_PLACEHOLDER = 10_000
+
+
+def emit_peer_stats(peer_stats):
+    stages = {
+        "capture": peer_stats.get("capture_ms"),
+        "encode": peer_stats.get("encode_ms"),
+    }
+    emit_peer_message({
+        "type": "stats",
+        **peer_stats,
+        "dominant_stage": dominant_latency_stage(stages),
+    })
+
+
 def run_webrtc_peer(args):
-    """Run one native H.264 sender controlled by newline-delimited JSON on stdio."""
+    """Run one native sender controlled by newline-delimited JSON on stdio."""
     require_native_runtime()
     caps = capabilities()
-    encoder = (
-        "h264_software" if args.test_source else
-        args.encoder if args.encoder != "auto" else caps["recommended_encoder"]
-    )
-    if not encoder or not caps["encoders"].get(encoder):
-        raise RuntimeError(f"Encoder is unavailable: {encoder or 'none'}")
+    encoder, negotiated = choose_peer_encoder(args, caps)
+    ceiling_mbps = max(int(args.bitrate), 2)
+    current_mbps = float(ceiling_mbps)
 
     session = None if args.test_source else ScreenCastSession()
     pipeline = None
@@ -215,32 +350,54 @@ def run_webrtc_peer(args):
         if session:
             fd, target_property, target = session.open()
             chain = build_encoding_chain(
-                fd, target_property, target, encoder, args.bitrate * 1000, args.fps
+                fd, target_property, target, encoder, ceiling_mbps * 1000, args.fps
             )
         else:
-            chain = (
-                "videotestsrc is-live=true pattern=ball "
-                f"! video/x-raw,width=1280,height=720,framerate={args.fps}/1 "
-                "! videoconvert ! video/x-raw,format=NV12 "
-                f"! x264enc bitrate={args.bitrate * 1000} speed-preset=ultrafast "
-                f"tune=zerolatency key-int-max={args.fps} bframes=0 "
-                "! video/x-h264,profile=main ! h264parse "
-            )
+            chain = test_source_chain(encoder, ceiling_mbps * 1000, args.fps)
         description = chain + (
             "! identity name=peer_encoded signal-handoffs=true "
-            "! rtph264pay pt=96 config-interval=-1 aggregate-mode=zero-latency "
-            "! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 "
-            "! webrtcbin name=sender bundle-policy=max-bundle"
+            + pacing_payloader_fragment(encoder)
+            + "! webrtcbin name=sender bundle-policy=max-bundle"
         )
         pipeline = Gst.parse_launch(description)
         sender = pipeline.get_by_name("sender")
         encoded = pipeline.get_by_name("peer_encoded")
-        peer_stats = {"encoded_frames": 0}
+        video_encoder = pipeline.get_by_name("video_encoder")
+        pre_encode = pipeline.get_by_name("pre_encode")
+        captured = pipeline.get_by_name("captured")
+        peer_stats = {
+            "encoded_frames": 0,
+            "keyframes_forced": 0,
+            "bitrate_mbps": current_mbps,
+            "codec": encoder_codec_family(encoder),
+            "encoder": encoder,
+            "capture_ms": None,
+            "encode_ms": None,
+            "frames_since_keyframe": KEYFRAME_PLACEHOLDER,
+        }
+        stage_marks = {"captured": None, "pre_encode": None}
+
+        def mark_stage(name):
+            def _handoff(_identity, _buffer):
+                stage_marks[name] = time.monotonic()
+            return _handoff
+
+        if captured:
+            captured.connect("handoff", mark_stage("captured"))
+        if pre_encode:
+            pre_encode.connect("handoff", mark_stage("pre_encode"))
 
         def encoded_handoff(_identity, _buffer):
+            now = time.monotonic()
             peer_stats["encoded_frames"] += 1
+            peer_stats["frames_since_keyframe"] += 1
+            if stage_marks.get("captured") is not None:
+                pre_ts = stage_marks["pre_encode"] or now
+                peer_stats["capture_ms"] = round((pre_ts - stage_marks["captured"]) * 1000, 2)
+            if stage_marks.get("pre_encode") is not None:
+                peer_stats["encode_ms"] = round((now - stage_marks["pre_encode"]) * 1000, 2)
             if peer_stats["encoded_frames"] % 10 == 0:
-                emit_peer_message({"type": "stats", **peer_stats})
+                emit_peer_stats(peer_stats)
 
         encoded.connect("handoff", encoded_handoff)
 
@@ -254,9 +411,13 @@ def run_webrtc_peer(args):
         def attach_data_channel(channel):
             def on_message(_channel, payload):
                 try:
-                    emit_peer_message({"type": "input", "packet": json.loads(payload)})
+                    packet = json.loads(payload)
                 except (ValueError, TypeError):
-                    pass
+                    return
+                if isinstance(packet, dict) and packet.get("type") in {"adapt", "request-keyframe", "media-feedback"}:
+                    GLib.idle_add(apply_message, packet)
+                    return
+                emit_peer_message({"type": "input", "packet": packet})
             channel.connect("on-message-string", on_message)
 
         def on_data_channel(_element, channel):
@@ -280,6 +441,28 @@ def run_webrtc_peer(args):
 
         sender.connect("on-negotiation-needed", negotiation_needed)
 
+        def apply_adaptation(message):
+            nonlocal current_mbps
+            loss = message.get("lossRatio")
+            if loss is None:
+                loss = message.get("fractionLost")
+            new_bitrate, loss_keyframe = next_bitrate_mbps(current_mbps, ceiling_mbps, loss or 0)
+            decoded_delta = message.get("framesDecodedDelta")
+            force = (
+                loss_keyframe
+                or message.get("type") == "request-keyframe"
+                or should_force_keyframe(loss or 0, peer_stats["frames_since_keyframe"], decoded_delta)
+            )
+            if new_bitrate != current_mbps:
+                current_mbps = new_bitrate
+                apply_encoder_bitrate(video_encoder, current_mbps)
+                peer_stats["bitrate_mbps"] = round(current_mbps, 2)
+            if force:
+                if force_encoder_keyframe(video_encoder):
+                    peer_stats["keyframes_forced"] += 1
+                    peer_stats["frames_since_keyframe"] = 0
+            emit_peer_stats(peer_stats)
+
         def apply_message(message):
             try:
                 if message.get("type") == "answer" and isinstance(message.get("sdp"), str):
@@ -287,6 +470,8 @@ def run_webrtc_peer(args):
                     sender.emit("set-remote-description", answer, Gst.Promise.new())
                 elif message.get("type") == "ice-candidate" and isinstance(message.get("candidate"), str):
                     sender.emit("add-ice-candidate", int(message.get("sdpMLineIndex", 0)), message["candidate"])
+                elif message.get("type") in {"adapt", "media-feedback", "request-keyframe"}:
+                    apply_adaptation(message)
                 elif message.get("type") == "stop":
                     loop.quit()
             except Exception as error:
@@ -314,7 +499,13 @@ def run_webrtc_peer(args):
 
         bus.connect("message", bus_message)
         pipeline.set_state(Gst.State.PLAYING)
-        emit_peer_message({"type": "ready", "encoder": encoder})
+        emit_peer_message({
+            "type": "ready",
+            "encoder": encoder,
+            "codec": encoder_codec_family(encoder),
+            "negotiated_codecs": negotiated,
+            "bitrate_mbps": current_mbps,
+        })
         loop.run()
         return 0
     finally:
@@ -382,12 +573,7 @@ def run_benchmark(args):
 def run_webrtc_loopback(args):
     require_native_runtime()
     caps = capabilities()
-    encoder = (
-        "h264_software" if args.test_source else
-        args.encoder if args.encoder != "auto" else caps["recommended_encoder"]
-    )
-    if not encoder or not caps["encoders"].get(encoder):
-        raise RuntimeError(f"Encoder is unavailable: {encoder or 'none'}")
+    encoder, _negotiated = choose_peer_encoder(args, caps)
     session = None if args.test_source else ScreenCastSession()
     pipeline = None
     try:
@@ -398,11 +584,8 @@ def run_webrtc_loopback(args):
             )
         else:
             description = add_webrtc_loopback(
-                "videotestsrc is-live=true pattern=ball "
-                f"! video/x-raw,width=1280,height=720,framerate={args.fps}/1 "
-                "! videoconvert ! video/x-raw,format=NV12 "
-                f"! x264enc bitrate={args.bitrate * 1000} speed-preset=ultrafast tune=zerolatency "
-                f"key-int-max={args.fps} bframes=0 ! video/x-h264,profile=main ! h264parse "
+                test_source_chain(encoder, args.bitrate * 1000, args.fps),
+                encoder,
             )
         pipeline = Gst.parse_launch(description)
         sender = pipeline.get_by_name("sender")
@@ -412,7 +595,7 @@ def run_webrtc_loopback(args):
         stats = {"frames": 0, "bytes": 0, "error": None, "receiver_pad": None}
 
         receive_caps = Gst.Caps.from_string(
-            "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
+            f"application/x-rtp,media=video,encoding-name={rtp_encoding_name(encoder)},payload=96,clock-rate=90000"
         )
         receiver.emit(
             "add-transceiver",
@@ -510,22 +693,30 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("probe", help="Report native media capabilities")
+    encoder_choices = (
+        "auto", "h264_vaapi", "h264_software",
+        "hevc_vaapi", "hevc_software", "av1_vaapi", "av1_software",
+    )
     benchmark = subparsers.add_parser("benchmark", help="Capture and encode a selected screen")
-    benchmark.add_argument("--encoder", choices=("auto", "h264_vaapi", "h264_software"), default="auto")
+    benchmark.add_argument("--encoder", choices=encoder_choices, default="auto")
     benchmark.add_argument("--bitrate", type=int, default=25, help="Target bitrate in Mbps")
     benchmark.add_argument("--fps", type=int, default=60)
     benchmark.add_argument("--seconds", type=int, default=10)
     loopback = subparsers.add_parser("webrtc-loopback", help="Capture, encode, WebRTC-send, and decode locally")
-    loopback.add_argument("--encoder", choices=("auto", "h264_vaapi", "h264_software"), default="auto")
+    loopback.add_argument("--encoder", choices=encoder_choices, default="auto")
     loopback.add_argument("--bitrate", type=int, default=25, help="Target bitrate in Mbps")
     loopback.add_argument("--fps", type=int, default=60)
     loopback.add_argument("--seconds", type=int, default=10)
     loopback.add_argument("--test-source", action="store_true", help=argparse.SUPPRESS)
+    loopback.add_argument("--remote-codecs", default="", help="Viewer codecs, comma-separated (h264,hevc,av1)")
+    loopback.add_argument("--preference", default="h264", help="Preferred codec when both sides advertise it")
     peer = subparsers.add_parser("webrtc-peer", help="Run a signaling-controlled native WebRTC sender")
-    peer.add_argument("--encoder", choices=("auto", "h264_vaapi", "h264_software"), default="auto")
+    peer.add_argument("--encoder", choices=encoder_choices, default="auto")
     peer.add_argument("--bitrate", type=int, default=25, help="Target bitrate in Mbps")
     peer.add_argument("--fps", type=int, default=60)
     peer.add_argument("--test-source", action="store_true", help=argparse.SUPPRESS)
+    peer.add_argument("--remote-codecs", default="", help="Viewer codecs, comma-separated (h264,hevc,av1)")
+    peer.add_argument("--preference", default="h264", help="Preferred codec when both sides advertise it")
     args = parser.parse_args()
 
     if args.command == "probe":

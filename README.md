@@ -21,14 +21,14 @@
 
 ## 🌟 Key Features
 
-- **⚡ Low-latency WebRTC streaming**: Chromium-managed screen capture and encoding with configurable resolution, frame rate, and bitrate targets.
+- **⚡ Low-latency WebRTC streaming**: Chromium-managed screen capture and encoding with configurable resolution, frame rate, and bitrate targets. H.264 is negotiated first; HEVC/AV1 are added only when both peers advertise them.
 - **🎮 4-Player Virtual Xbox 360 Controllers**: Linux kernel `/dev/uinput` ioctl driver exposing 4 genuine Xbox 360 joysticks with dual-motor force feedback rumble.
 - **🌐 P2P with relay support**: WebRTC ICE/STUN hole-punching with configurable TURN fallback for restrictive networks.
 - **📡 Local LAN Direct Connect (<1ms)**: Auto-discovers local network IPs to bypass public internet when on the same Wi-Fi or Ethernet.
 - **🖥️ Standalone Native Desktop App**: Both host and client live in one single application window with no browser overhead.
 - **🕹️ Couch Co-op Arcade**: Browse public party rooms or host multiplayer sessions for games like Smash, Overcooked, and Steam co-op.
 - **👥 Friends & Presence**: Live status indicators, gamer tag invites, and 1-click room joining.
-- **⚙️ Streaming controls**: Resolution, frame-rate, bitrate, controller calibration, and per-peer host permissions. Codec preferences remain on the parity roadmap.
+- **⚙️ Streaming controls**: Resolution, frame-rate, bitrate, controller calibration, and per-peer host permissions. Packet loss lowers bitrate and requests a new keyframe.
 
 ---
 

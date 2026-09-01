@@ -29,10 +29,10 @@ Implementation note: signaling sessions currently have a 15-second reconnect gra
 
 - [x] Native PipeWire capture backend integrated into live sessions (single-viewer portal path verified in Chromium)
 - [x] Explicit VA-API encoding in live sessions (1920×1080 portal frames decoded in Chromium)
-- [ ] H.264 baseline plus negotiated HEVC/AV1 capability fallback
-- [ ] Pacing, bitrate adaptation, keyframe recovery, and packet-loss handling
+- [x] H.264 baseline plus negotiated HEVC/AV1 capability fallback
+- [x] Pacing, bitrate adaptation, keyframe recovery, and packet-loss handling
 - [ ] Hardware decode path and frame-present timing
-- [ ] Real telemetry for capture, encode, network, decode, and display latency
+- [x] Real telemetry for capture, encode, network, decode, and display latency
 
 Acceptance: 1080p60 under 25 Mbps with no sustained frame drops; latency and quality gates documented per supported GPU.
 

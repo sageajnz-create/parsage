@@ -1,5 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RoomState, PeerInfo, ChatMessage, EmojiReaction } from '../types';
+import {
+  codecsFromSdp,
+  preferPeerVideoCodecs,
+  probeLocalVideoCodecs,
+  type VideoCodec
+} from '../media/negotiateCodecs';
+import {
+  configureVideoSender,
+  forceSenderKeyframe,
+  lossRatio,
+  nextBitrateMbps,
+  shouldForceKeyframe
+} from '../media/bitrateAdaptation';
 
 const DEFAULT_STUN_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -40,6 +53,18 @@ export function useWebRTC() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shuttingDown = useRef(false);
   const nativeTargetPeerId = useRef<string | null>(null);
+  const remoteCodecs = useRef<Map<string, VideoCodec[]>>(new Map());
+  const preferredCodecRef = useRef<string>('h264');
+  const adaptiveBitrateRef = useRef(true);
+  const currentBitrateMbpsRef = useRef(25);
+  const maxFramerateRef = useRef(60);
+  const lastKeyframeAtRef = useRef(0);
+  const lastOutboundCounts = useRef({ lost: 0, sent: 0 });
+  const lastInboundCounts = useRef({ lost: 0, received: 0, decoded: 0 });
+  const mediaPeerRef = useRef<RTCPeerConnection | null>(null);
+  const nativeLatencyRef = useRef<{ captureMs?: number | null; encodeMs?: number | null; codec?: string }>({});
+  const [mediaPeerConnection, setMediaPeerConnection] = useState<RTCPeerConnection | null>(null);
+  const [nativeLatency, setNativeLatency] = useState<{ captureMs?: number | null; encodeMs?: number | null; codec?: string }>({});
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { roomStateRef.current = roomState; }, [roomState]);
@@ -51,6 +76,21 @@ export function useWebRTC() {
       if (targetPeerId !== nativeTargetPeerId.current || !message) return;
       if (message.type === 'ready') {
         setNativeMediaStatus('ready');
+        if (typeof message.codec === 'string' || typeof message.capture_ms === 'number') {
+          nativeLatencyRef.current = {
+            codec: message.codec,
+            captureMs: message.capture_ms,
+            encodeMs: message.encode_ms
+          };
+          setNativeLatency(nativeLatencyRef.current);
+        }
+      } else if (message.type === 'stats') {
+        nativeLatencyRef.current = {
+          codec: message.codec,
+          captureMs: message.capture_ms,
+          encodeMs: message.encode_ms
+        };
+        setNativeLatency({ ...nativeLatencyRef.current });
       } else if (message.type === 'offer' && typeof message.sdp === 'string') {
         wsRef.current?.send(JSON.stringify({
           type: 'offer', targetPeerId, sdp: { type: 'offer', sdp: message.sdp }
@@ -184,13 +224,31 @@ export function useWebRTC() {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         const sender = pc.addTrack(track, localStreamRef.current!);
-        if (track.kind === 'video') configureVideoSender(sender, maxBitrateBpsRef.current);
+        if (track.kind === 'video') {
+          configureVideoSender(
+            sender,
+            currentBitrateMbpsRef.current * 1_000_000,
+            maxFramerateRef.current
+          );
+        }
       });
+    } else if (isInitiator) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
     }
+
+    preferPeerVideoCodecs(
+      pc,
+      remoteCodecs.current.get(targetPeerId) || null,
+      preferredCodecRef.current,
+      Boolean(localStreamRef.current)
+    );
 
     pc.ontrack = (e) => {
       if (e.streams && e.streams[0]) {
         setRemoteStream(e.streams[0]);
+        mediaPeerRef.current = pc;
+        setMediaPeerConnection(pc);
       }
     };
 
@@ -210,11 +268,41 @@ export function useWebRTC() {
     return pc;
   }, []);
 
-  const configureVideoSender = async (sender: RTCRtpSender, maxBitrateBps: number) => {
-    const parameters = sender.getParameters();
-    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
-    parameters.encodings[0].maxBitrate = maxBitrateBps;
-    await sender.setParameters(parameters);
+  const rememberRemoteCodecs = (peerId: string, sdpText?: string, listed?: unknown) => {
+    const fromList = Array.isArray(listed) ? listed as string[] : [];
+    const fromSdp = codecsFromSdp(sdpText || '');
+    const merged = [...new Set([...fromList, ...fromSdp])];
+    if (!merged.length) return;
+    remoteCodecs.current.set(peerId, merged as VideoCodec[]);
+  };
+
+  const sendMediaCapabilities = (targetPeerId: string) => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    const local = probeLocalVideoCodecs();
+    wsRef.current.send(JSON.stringify({
+      type: 'media-capabilities',
+      targetPeerId,
+      codecs: isHostRef.current ? local.encode : local.decode
+    }));
+  };
+
+  const applyViewerFeedback = async (targetPeerId: string, data: { type?: string; lossRatio?: number; framesDecodedDelta?: number }) => {
+    const pc = peerConnections.current.get(targetPeerId);
+    const sender = pc?.getSenders().find((item) => item.track?.kind === 'video');
+    if (!sender) return;
+    const loss = Number(data.lossRatio) || 0;
+    if (!adaptiveBitrateRef.current) {
+      if (data.type === 'request-keyframe' || shouldForceKeyframe(loss, lastKeyframeAtRef.current, Date.now(), data.framesDecodedDelta)) {
+        if (await forceSenderKeyframe(sender)) lastKeyframeAtRef.current = Date.now();
+      }
+      return;
+    }
+    const next = nextBitrateMbps(currentBitrateMbpsRef.current, maxBitrateBpsRef.current / 1_000_000, loss);
+    currentBitrateMbpsRef.current = next.bitrateMbps;
+    await configureVideoSender(sender, next.bitrateMbps * 1_000_000, maxFramerateRef.current);
+    if (next.requestKeyframe || data.type === 'request-keyframe' || shouldForceKeyframe(loss, lastKeyframeAtRef.current, Date.now(), data.framesDecodedDelta)) {
+      if (await forceSenderKeyframe(sender)) lastKeyframeAtRef.current = Date.now();
+    }
   };
 
   const negotiatePeer = async (pc: RTCPeerConnection, targetPeerId: string, iceRestart = false) => {
@@ -222,10 +310,16 @@ export function useWebRTC() {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
     negotiationLocks.current.add(targetPeerId);
     try {
+      preferPeerVideoCodecs(
+        pc,
+        remoteCodecs.current.get(targetPeerId) || null,
+        preferredCodecRef.current,
+        Boolean(localStreamRef.current)
+      );
+      const hasTransceivers = pc.getTransceivers().length > 0;
       const offer = await pc.createOffer({
-        offerToReceiveVideo: true,
-        offerToReceiveAudio: true,
-        iceRestart
+        iceRestart,
+        ...(hasTransceivers ? {} : { offerToReceiveVideo: true, offerToReceiveAudio: true })
       });
       await pc.setLocalDescription(offer);
       wsRef.current.send(JSON.stringify({ type: 'offer', targetPeerId, sdp: pc.localDescription }));
@@ -264,6 +358,7 @@ export function useWebRTC() {
   };
 
   const beginGuestConnection = async (hostId: string) => {
+    sendMediaCapabilities(hostId);
     const pc = createPeerConnection(hostId, true);
     await negotiatePeer(pc, hostId);
   };
@@ -283,6 +378,8 @@ export function useWebRTC() {
         } else if (data.type === 'pong') {
           const rtt = Date.now() - data.timestamp;
           setLatencyMs(rtt);
+        } else if (data.type === 'media-feedback' || data.type === 'adapt' || data.type === 'request-keyframe') {
+          if (isHostRef.current) applyViewerFeedback(targetPeerId, data);
         } else if (isHostRef.current) {
           const peer = roomStateRef.current?.peers.find((candidate) => candidate.id === targetPeerId);
           const permission = data.type === 'gamepad'
@@ -372,6 +469,12 @@ export function useWebRTC() {
         await beginGuestConnection(msg.hostId);
         break;
 
+      case 'media-capabilities':
+        if (typeof msg.fromPeerId === 'string') {
+          rememberRemoteCodecs(msg.fromPeerId, undefined, msg.codecs);
+        }
+        break;
+
       case 'room-state':
         setRoomState(msg.state);
         if (nativeTargetPeerId.current) {
@@ -409,7 +512,14 @@ export function useWebRTC() {
       }
 
       case 'offer': {
+        rememberRemoteCodecs(msg.fromPeerId, msg.sdp?.sdp, msg.codecs);
         const pc = createPeerConnection(msg.fromPeerId, false);
+        preferPeerVideoCodecs(
+          pc,
+          remoteCodecs.current.get(msg.fromPeerId) || null,
+          preferredCodecRef.current,
+          Boolean(localStreamRef.current)
+        );
         if (pc.signalingState === 'have-local-offer') {
           await pc.setLocalDescription({ type: 'rollback' });
         }
@@ -434,6 +544,7 @@ export function useWebRTC() {
         }
         const pc = peerConnections.current.get(msg.fromPeerId);
         if (pc) {
+          rememberRemoteCodecs(msg.fromPeerId, msg.sdp?.sdp, msg.codecs);
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         }
         break;
@@ -484,7 +595,12 @@ export function useWebRTC() {
     };
   }, [connectSignaling]);
 
-  const startScreenCapture = async (fps = 60, resolution = '1080p', maxBitrateMbps = 25) => {
+  const startScreenCapture = async (
+    fps = 60,
+    resolution = '1080p',
+    maxBitrateMbps = 25,
+    options?: { preferredCodec?: string; adaptiveBitrate?: boolean }
+  ) => {
     try {
       if (nativeTargetPeerId.current) {
         await window.parsage?.stopNativePeer?.();
@@ -515,13 +631,25 @@ export function useWebRTC() {
       setLocalStream(stream);
       localStreamRef.current = stream;
       maxBitrateBpsRef.current = maxBitrateMbps * 1_000_000;
+      currentBitrateMbpsRef.current = maxBitrateMbps;
+      maxFramerateRef.current = fps;
+      if (options?.preferredCodec) preferredCodecRef.current = options.preferredCodec;
+      if (typeof options?.adaptiveBitrate === 'boolean') adaptiveBitrateRef.current = options.adaptiveBitrate;
 
-      peerConnections.current.forEach((pc) => {
+      for (const [peerId, pc] of peerConnections.current) {
+        preferPeerVideoCodecs(
+          pc,
+          remoteCodecs.current.get(peerId) || null,
+          preferredCodecRef.current,
+          true
+        );
         stream.getTracks().forEach((track) => {
           const sender = pc.addTrack(track, stream);
-          if (track.kind === 'video') configureVideoSender(sender, maxBitrateBpsRef.current);
+          if (track.kind === 'video') {
+            configureVideoSender(sender, currentBitrateMbpsRef.current * 1_000_000, fps);
+          }
         });
-      });
+      }
 
       if (isHostRef.current) {
         for (const [peerId, pc] of peerConnections.current) {
@@ -559,10 +687,16 @@ export function useWebRTC() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'native-media-start', targetPeerId }));
     }
+    maxFramerateRef.current = fps;
+    currentBitrateMbpsRef.current = maxBitrateMbps;
+    maxBitrateBpsRef.current = maxBitrateMbps * 1_000_000;
+    const viewerCodecs = remoteCodecs.current.get(targetPeerId) || ['h264'];
     const result = await window.parsage.startNativePeer({
       targetPeerId,
       fps,
-      bitrate: maxBitrateMbps
+      bitrate: maxBitrateMbps,
+      codecs: viewerCodecs,
+      preference: preferredCodecRef.current
     });
     if (!result.ok) {
       nativeTargetPeerId.current = null;
@@ -602,6 +736,7 @@ export function useWebRTC() {
   const approvePeer = (peerId: string, slot?: number | null) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'approve-peer', peerId, slot }));
+      sendMediaCapabilities(peerId);
     }
   };
 
@@ -644,6 +779,60 @@ export function useWebRTC() {
     });
   };
 
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      if (isHostRef.current && localStreamRef.current) {
+        for (const [peerId, pc] of peerConnections.current) {
+          try {
+            const report = await pc.getStats();
+            let lost = 0;
+            let sent = 0;
+            report.forEach((stat) => {
+              if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
+                lost = Number(stat.packetsLost) || 0;
+                sent = Number(stat.packetsSent) || 0;
+              }
+            });
+            const lostDelta = Math.max(0, lost - lastOutboundCounts.current.lost);
+            const sentDelta = Math.max(0, sent - lastOutboundCounts.current.sent);
+            lastOutboundCounts.current = { lost, sent };
+            await applyViewerFeedback(peerId, { type: 'adapt', lossRatio: lossRatio(lostDelta, sentDelta) });
+          } catch (_error) {}
+        }
+        return;
+      }
+
+      const viewerPc = mediaPeerRef.current;
+      const dc = [...dataChannels.current.values()].find((channel) => channel.readyState === 'open');
+      if (!viewerPc || !dc) return;
+      try {
+        const report = await viewerPc.getStats();
+        let lost = 0;
+        let received = 0;
+        let decoded = 0;
+        report.forEach((stat) => {
+          if (stat.type === 'inbound-rtp' && stat.kind === 'video') {
+            lost = Number(stat.packetsLost) || 0;
+            received = Number(stat.packetsReceived) || 0;
+            decoded = Number(stat.framesDecoded) || 0;
+          }
+        });
+        const lostDelta = Math.max(0, lost - lastInboundCounts.current.lost);
+        const receivedDelta = Math.max(0, received - lastInboundCounts.current.received);
+        const decodedDelta = decoded - lastInboundCounts.current.decoded;
+        lastInboundCounts.current = { lost, received, decoded };
+        const ratio = lossRatio(lostDelta, receivedDelta);
+        const feedback = {
+          type: decodedDelta <= 0 && ratio > 0 ? 'request-keyframe' : 'media-feedback',
+          lossRatio: ratio,
+          framesDecodedDelta: decodedDelta
+        };
+        dc.send(JSON.stringify(feedback));
+      } catch (_error) {}
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return {
     wsConnected,
     currentPeerId,
@@ -658,6 +847,8 @@ export function useWebRTC() {
     chatMessages,
     reactions,
     lanIps,
+    mediaPeerConnection,
+    nativeLatency,
     setErrorMsg,
     startScreenCapture,
     startNativeCapture,

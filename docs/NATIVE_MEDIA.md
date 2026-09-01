@@ -9,6 +9,9 @@ The native backend is being introduced behind the existing Chromium WebRTC path.
 - PipeWire stream targeting using `pipewire.serial` when provided
 - Low-buffer-depth capture pipeline
 - AMD/Intel VA H.264 encoding with software H.264 fallback
+- HEVC/AV1 encoding only when the viewer advertises that codec; H.264 stays first
+- Sender pacing (small leaky queue) plus loss-driven bitrate changes and forced keyframes
+- Capture and encode stage timing on the native sender; decode/network/present from the viewer HUD
 - Measured encoded frame throughput and output bitrate
 - Local `webrtcbin` negotiation through ICE, DTLS, SRTP, and H.264 RTP reception
 - Experimental Electron bridge that exchanges native SDP/ICE through an authenticated Parsage room
@@ -35,7 +38,9 @@ The deterministic WebRTC transport test currently reaches `connected` on both pe
 
 The installed Electron app now exposes **Native VA-API** after one viewer has been approved. It launches a portal-authorized native sender, forwards its offer and ICE candidates over the existing signaling membership, and routes the viewer's answer and candidates back to GStreamer. Browser capture remains the supported fallback.
 
-This first integration slice is deliberately limited to one approved viewer. Its GStreamer control protocol, H.264 offer, ICE trickling, and SCTP media section are verified locally; a complete portal-to-remote-browser session must still pass the WAN acceptance run before the live native checkbox in the parity roadmap is closed. Multi-viewer native hosting will require one `webrtcbin` peer per viewer fed from a shared capture/encoder pipeline.
+This first integration slice is deliberately limited to one approved viewer. Its GStreamer control protocol, negotiated codec offer (H.264 first), ICE trickling, and SCTP media section are verified locally; a complete portal-to-remote-browser session must still pass the WAN acceptance run before the live native checkbox in the parity roadmap is closed. Multi-viewer native hosting will require one `webrtcbin` peer per viewer fed from a shared capture/encoder pipeline.
+
+Loss reports from the viewer (`media-feedback` on the data channel, or `{ "type": "adapt", "lossRatio": 0.08 }` on the native stdin control socket) lower the encoder bitrate. A hard loss spike or `{ "type": "request-keyframe" }` sends a `GstForceKeyUnit` event so the viewer can recover without waiting for the next periodic IDR.
 
 The automated browser gate launches the signaling server, joins an isolated headless Chromium viewer, performs the browser-to-native handoff, and requires GStreamer's connection state to reach `connected`:
 
