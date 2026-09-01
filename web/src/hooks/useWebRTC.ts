@@ -232,7 +232,7 @@ export function useWebRTC() {
           );
         }
       });
-    } else if (isInitiator) {
+    } else if (isInitiator && typeof pc.addTransceiver === 'function') {
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
     }
@@ -316,7 +316,7 @@ export function useWebRTC() {
         preferredCodecRef.current,
         Boolean(localStreamRef.current)
       );
-      const hasTransceivers = pc.getTransceivers().length > 0;
+      const hasTransceivers = typeof pc.getTransceivers === 'function' && pc.getTransceivers().length > 0;
       const offer = await pc.createOffer({
         iceRestart,
         ...(hasTransceivers ? {} : { offerToReceiveVideo: true, offerToReceiveAudio: true })

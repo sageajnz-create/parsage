@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   advertisedCodecsFromNames,
+  applyCodecPreferences,
   codecsFromSdp,
   negotiateVideoCodecs,
   orderCodecCapabilities
@@ -52,4 +53,8 @@ test('codec preferences keep H.264 first and retain RTX/FEC helpers', () => {
   assert.ok(ordered.some((codec) => codec.mimeType === 'video/rtx'));
   assert.ok(!ordered.some((codec) => codec.mimeType === 'video/VP8'));
   assert.ok(!ordered.some((codec) => codec.mimeType === 'video/AV1'));
+});
+
+test('codec preference application is a no-op without getTransceivers', () => {
+  applyCodecPreferences({} as RTCPeerConnection, [{ mimeType: 'video/H264' } as RTCRtpCodec]);
 });

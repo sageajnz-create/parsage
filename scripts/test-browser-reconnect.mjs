@@ -73,6 +73,31 @@ async function waitForHttp(url, attempts = 80) {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
+async function waitForDebuggerPages(port, browserProcess, stderr) {
+  let lastError = 'no response';
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (browserProcess.exitCode !== null) {
+      throw new Error(`Browser exited with code ${browserProcess.exitCode}: ${stderr()}`);
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json`);
+      if (response.ok) {
+        const pages = await response.json();
+        if (Array.isArray(pages) && pages.some(page => page.type === 'page' && page.webSocketDebuggerUrl)) {
+          return pages;
+        }
+        lastError = `debugger returned ${JSON.stringify(pages)}`;
+      } else {
+        lastError = `HTTP ${response.status}`;
+      }
+    } catch (error) {
+      lastError = error.message;
+    }
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for http://127.0.0.1:${port}/json (${lastError})`);
+}
+
 class CdpClient {
   nextId = 1;
   pending = new Map();
@@ -145,6 +170,7 @@ const instrumentation = String.raw`
     remoteDescription = null;
     restartIceCalls = 0;
     offerOptions = [];
+    transceivers = [];
     onconnectionstatechange = null;
     onicecandidate = null;
     ontrack = null;
@@ -154,6 +180,39 @@ const instrumentation = String.raw`
       window.__parsageTestPeerConnections.push(this);
     }
     createDataChannel() { return new FakeDataChannel(); }
+    addTransceiver(kind, init = {}) {
+      const transceiver = {
+        direction: init.direction || 'sendrecv',
+        receiver: { track: { kind } },
+        sender: {
+          track: null,
+          getParameters() { return { encodings: [{}] }; },
+          async setParameters() {},
+          async generateKeyFrame() {},
+        },
+        setCodecPreferences() {},
+      };
+      this.transceivers.push(transceiver);
+      return transceiver;
+    }
+    getTransceivers() { return this.transceivers; }
+    getSenders() { return this.transceivers.map(item => item.sender); }
+    addTrack(track) {
+      const sender = {
+        track,
+        getParameters() { return { encodings: [{}] }; },
+        async setParameters() {},
+        async generateKeyFrame() {},
+      };
+      this.transceivers.push({
+        direction: 'sendonly',
+        receiver: { track: { kind: track.kind } },
+        sender,
+        setCodecPreferences() {},
+      });
+      return sender;
+    }
+    async getStats() { return new Map(); }
     async createOffer(options = {}) {
       this.offerOptions.push({ ...options });
       offerSequence += 1;
@@ -231,7 +290,7 @@ try {
     '--no-sandbox',
     '--disable-gpu',
     '--disable-dev-shm-usage',
-    '--remote-debugging-address=127.0.0.1',
+    '--remote-allow-origins=*',
     `--remote-debugging-port=${debuggingPort}`,
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -239,12 +298,11 @@ try {
   let browserErrors = '';
   browser.stderr.on('data', chunk => { browserErrors += chunk.toString(); });
 
-  const pagesResponse = await waitForHttp(`http://127.0.0.1:${debuggingPort}/json`).catch(error => {
+  const pages = await waitForDebuggerPages(debuggingPort, browser, () => browserErrors.slice(-2000)).catch(error => {
     throw new Error(
       `${error.message}; browser exit=${browser.exitCode}; stderr=${browserErrors.slice(-2000)}`,
     );
   });
-  const pages = await pagesResponse.json();
   const page = pages.find(candidate => candidate.type === 'page' && candidate.webSocketDebuggerUrl);
   if (!page) throw new Error(`No Chromium debugging page found: ${browserErrors}`);
   debug = new WebSocket(page.webSocketDebuggerUrl);

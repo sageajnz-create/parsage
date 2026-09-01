@@ -113,7 +113,7 @@ export function applyCodecPreferences(
   pc: RTCPeerConnection,
   orderedCodecs: RTCRtpCodec[]
 ): void {
-  if (!orderedCodecs.length) return;
+  if (!orderedCodecs.length || typeof pc.getTransceivers !== 'function') return;
   for (const transceiver of pc.getTransceivers()) {
     if (typeof transceiver.setCodecPreferences === 'function') {
       transceiver.setCodecPreferences(orderedCodecs);
